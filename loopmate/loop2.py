@@ -124,6 +124,8 @@ class Action:
     def __post_init__(self):
         self.n = self.end - self.start
         self.current_sample = 0
+        if not hasattr(self, "priority"):
+            self.priority = 3
 
     def __iter__(self):
         return self
@@ -135,8 +137,14 @@ class Action:
             raise StopIteration
         return self.do
 
+    def __lt__(self, other):
+        return self.priority < other.priority
+
     def do(self, outdata):
         raise NotImplementedError("Subclasses need to inherit this!")
+
+    def set_priority(self, priority):
+        self.priority = priority
 
 
 class Fades(Enum):
@@ -144,11 +152,15 @@ class Fades(Enum):
     pass
 
 
+# TODO think about pre-made fade for loop borders
 @dataclass
 class Fade(Action):
+    # TODO: fades should also be required by many other actions as a multiplier
+    # with the effect rather than outdata itself - can we somehow merge this?
     out: bool
     # Use to trigger mute after fade out, or signal mute before fade-in?
-    mute: bool
+    mute: bool = False
+    priority: int = 1
 
     def __post_init__(self):
         super().__post_init__()
@@ -158,11 +170,9 @@ class Fade(Action):
         else:
             self.window = window[: self.n, None]
 
-    def do(self, outdata):
-        n_i = len(outdata)
-        outdata[:] *= self.window[
-            self.current_sample : self.current_sample + n_i
-        ]
+    def do(self, data):
+        n_i = len(data)
+        data[:] *= self.window[self.current_sample : self.current_sample + n_i]
         self.current_sample += n_i
 
 

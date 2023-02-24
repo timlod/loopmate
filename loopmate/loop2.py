@@ -5,7 +5,7 @@ import termios
 import threading
 import time
 import tty
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 from enum import Enum, member
 from pathlib import Path
 from typing import Callable
@@ -119,13 +119,14 @@ class Trigger:
 class Action:
     start: int
     end: int
-    recurring: bool
+
+    _: KW_ONLY
+    recurring: bool = False
+    priority: int = 3
 
     def __post_init__(self):
         self.n = self.end - self.start
         self.current_sample = 0
-        if not hasattr(self, "priority"):
-            self.priority = 3
 
     def __iter__(self):
         return self
@@ -158,9 +159,11 @@ class Fade(Action):
     # TODO: fades should also be required by many other actions as a multiplier
     # with the effect rather than outdata itself - can we somehow merge this?
     out: bool
+
+    _: KW_ONLY
+    priority: int = 1
     # Use to trigger mute after fade out, or signal mute before fade-in?
     mute: bool = False
-    priority: int = 1
 
     def __post_init__(self):
         super().__post_init__()

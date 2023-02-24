@@ -63,35 +63,6 @@ def no_pop(buffer, pos=0, up=True):
         buffer[pos - length : pos] *= windows[length][-length:]
 
 
-class Actions(Enum):
-    """
-    Actions need to have the signature fun(outdata, n), where outdata is the
-    audio buffer sent to PortAudio during a soundcard callback, and n is
-    information for interpolation.
-    """
-
-    # Use yield for frame interpolation?
-    def skeleton(outdata, start=None, end=None):
-        """Skeleton/signature for members of this Enum.
-
-        :param outdata: audio buffer sent to PortAudio during a sounddevice
-            callback
-        :param from:
-        :param until: action will do work until this frame
-
-        :returns:
-        """
-        pass
-
-    @member
-    def fade_out(outdata):
-        pass
-
-    @member
-    def reverse(outdata, n, until=None):
-        pass
-
-
 @dataclass
 class Trigger:
     # action should be triggered on this sample
@@ -191,15 +162,44 @@ class Fade(Action):
 
 
 @dataclass
-class Actions2:
+class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
     max: int = 20
     q = queue.PriorityQueue(maxsize=max)
+    active = queue.PriorityQueue(maxsize=max)
+    # TODO: if true, reset frames in all actions
+    stop: bool = False
 
-    def run(self, outdata):
-        # executes one run of actions on outdata, appropriately removing spent
-        # actions from the queue
-        pass
+    def run(self, outdata, current_frame):
+        """Run all actions (to be called once every callback)
+
+        :param outdata: outdata as passed into sd callback (will fill portaudio
+            buffer)
+        :param current_frame: first sample index of outdata in full audio
+        """
+        if self.stop:
+            # Add fade out + stop to active queue
+            self.stop = False
+
+        # Activate actions (puts them in active queue)
+        for i in range(self.q.qsize()):
+            action = self.q.get()
+            if action.start < current_frame < action.end:
+                self.active.put(action)
+
+        for i in range(self.active.qsize()):
+            action = self.active.get()
+            # Note that this only gets triggered if start is within or after
+            # the current frame, that's why we can use max
+            offset_a = max(0, action.start - current_frame)
+            # Indexing past the end of outdata will just return the full array
+            offset_b = action.end - current_frame
+            action.run(outdata[offset_a:offset_b])
+            if not action.consumed:
+                self.q.put(action)
+            else:
+                if action.spawn is not None:
+                    self.q.put(action.spawn)
 
 
 @dataclass

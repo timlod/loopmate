@@ -135,6 +135,29 @@ class Fades(Enum):
     pass
 
 
+@dataclass
+class Multiplier(Action):
+    """
+    Simple action which multiplies incoming data by some array.  arr needs to
+    be broadcastable such that data * arr works.
+    """
+
+    arr: np.ndarray[np.float32]
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert (
+            len(self.arr) == self.n
+        ), "Supplied array needs to have length n (end - start)!"
+        if len(self.arr.shape) == 1:
+            self.arr = self.arr[:, None]
+
+    def do(self, data):
+        n_i = len(data)
+        data[:] *= self.arr[self.current_sample : self.current_sample + n_i]
+        self.current_sample += n_i
+
+
 # TODO think about pre-made fade for loop borders
 @dataclass
 class Fade(Action):
@@ -145,7 +168,9 @@ class Fade(Action):
     _: KW_ONLY
     priority: int = 1
     # Use to trigger mute after fade out, or signal mute before fade-in?
-    mute: bool = False
+    # TODO: Just specify spawn
+    # mute: bool = False
+    # stop: bool = False
 
     def __post_init__(self):
         super().__post_init__()
@@ -159,6 +184,52 @@ class Fade(Action):
         n_i = len(data)
         data[:] *= self.window[self.current_sample : self.current_sample + n_i]
         self.current_sample += n_i
+
+
+class Mute(Multiplier):
+    def __init__(self, n):
+        silence = np.zeros(n, np.float32)
+        super().__init__(0, n, silence, recurrent=True, priority=0)
+
+    @classmethod
+    def from_fadeout(cls, fade_end: int, length: int):
+        """Intermediate mute spawned from fadeout, which in turn spawns a full
+        loop mute.
+
+        :param fade:
+        :param length:
+        """
+        n = length - fade_end
+        silence = np.zeros(n)
+        spawn = Mute(length)
+        super().__init__(
+            fade_end,
+            fade_end + n,
+            silence,
+            priority=0,
+            recurring=False,
+            spawn=spawn,
+        )
+
+    def unmute(self, current_frame, start=None, left=True):
+        if start is None:
+            self.current_sample = self.n
+        else:
+            self.current_sample = start - current_frame
+
+        self.recurrent = False
+        self.spawn = Fade(start, start + windowsize, priority=0)
+
+
+@dataclass
+class Stop(Action):
+    start: int = 0
+    end: int = 0
+    recurrent: bool = False
+
+    def do(self, outdata):
+        outdata[:] = 0.0
+        raise sd.CallbackStop
 
 
 @dataclass

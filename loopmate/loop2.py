@@ -123,10 +123,13 @@ class Action:
     _: KW_ONLY
     recurring: bool = False
     priority: int = 3
+    # Consuming this action will 'spawn'/queue this new action
+    spawn: Action | None = None
 
     def __post_init__(self):
         self.n = self.end - self.start
         self.current_sample = 0
+        self.consumed = False
 
     def __iter__(self):
         return self
@@ -137,6 +140,14 @@ class Action:
                 self.current_sample = 0
             raise StopIteration
         return self.do
+
+    def run(self, data):
+        self.do(data)
+        if self.recurring:
+            self.current_sample = 0
+
+        if self.current_sample >= self.n:
+            self.consumed = True
 
     def __lt__(self, other):
         return self.priority < other.priority

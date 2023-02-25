@@ -66,29 +66,6 @@ def no_pop(buffer, pos=0, up=True):
 
 
 @dataclass
-class Trigger:
-    # action should be triggered on this sample
-    sample: int
-    # Later replace with function - perhaps Enum?
-    action: str
-    # If True, repeat this trigger every loop, otherwise will be destroyed
-    recurring: bool = False
-    event: asyncio.Event() = None
-
-    def __post_init__(self):
-        if self.event is None:
-            self.event = asyncio.Event()
-
-    async def trigger(self, next_frame, task_queue):
-        if self.sample >= next_frame:
-            self.event.set()
-            task_queue.put(self.action)
-
-    def do(self, outdata):
-        pass
-
-
-@dataclass
 class Action:
     start: int
     end: int

@@ -167,6 +167,53 @@ class Fade(Action):
         self.current_sample += n_i
 
 
+class Mute3(Multiplier):
+    def __init__(self, start, n):
+        silence = np.zeros(n, np.float32)
+        super().__init__(0, n, silence, recurring=True, priority=0)
+        self.window = sig.windows.hann(1024)[:, None]
+        self.did_fade = False
+        self.current_sample = start
+        self.arr[start : start + 512] = self.window[512:]
+
+    def do(self, data):
+        if not self.did_fade and (self.arr[self.current_sample] == 0.0):
+            self.did_fade = True
+            self.arr[:] = 0.0
+        n_i = len(data)
+        data[:] *= self.arr[self.current_sample : self.current_sample + n_i]
+        self.current_sample += n_i
+
+    def unmute(self, current_frame):
+        self.arr = self.window[:512, None]
+        self.current_sample = 0
+        self.n = 512
+        self.start = current_frame
+        self.end = current_frame + 512
+
+
+@dataclass
+class Mute2(Action):
+    start: int = 0
+    end: int = 0
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.window = sig.windows.hann(1024)
+        self.silence = np.zeros(self.n, np.float32)
+        self.current_sample = self.start + 512
+        self.arr = self.window[512:, None]
+
+    def do(self, data):
+        n_i = len(data)
+        data[:] *= self.arr[self.current_sample : self.current_sample + n_i]
+        self.current_sample += n_i
+
+    def unmute(self):
+        self.arr = self.window[:512, None]
+        self.current_sample = 0
+
+
 class Mute(Multiplier):
     def __init__(self, n):
         silence = np.zeros(n, np.float32)
@@ -181,25 +228,35 @@ class Mute(Multiplier):
         :param length:
         """
         n = length - fade_end
-        silence = np.zeros(n)
+        print("In classmethod: ", n, fade_end, length)
         spawn = Mute(length)
-        return Multiplier(
-            fade_end,
-            fade_end + n,
-            silence,
-            priority=0,
-            recurring=False,
-            spawn=spawn,
-        )
+        mute = Mute(n)
+        mute.recurring = False
+        mute.start += fade_end
+        mute.end += fade_end
+        mute.spawn = spawn
+        return mute
 
     def unmute(self, current_frame, start=None, left=True):
         if start is None:
+            self.spawn = Fade(
+                current_frame,
+                current_frame + 1024,
+                priority=0,
+                out=False,
+            )
+            # This will consume the action asap
             self.current_sample = self.n
         else:
+            self.spawn = Fade(
+                start,
+                start + 1024,
+                priority=0,
+                out=False,
+            )
             self.current_sample = start - current_frame
 
         self.recurring = False
-        self.spawn = Fade(start, start + windowsize, priority=0)
 
 
 @dataclass
@@ -207,6 +264,7 @@ class Stop(Action):
     start: int = 0
     end: int = 0
     recurring: bool = False
+    priority = 100
 
     def do(self, outdata):
         outdata[:] = 0.0
@@ -264,6 +322,7 @@ class Actions:
                 self.q.put_nowait(action)
             else:
                 if action.spawn is not None:
+                    print(f"Putting {action.spawn}")
                     self.q.put_nowait(action.spawn)
 
 
@@ -316,7 +375,7 @@ class Loop:
             chunksize = min(leftover, frames)
             next_frame = self.current_frame + chunksize
 
-            print(f"playing at {self.current_frame}")
+            # print(f"playing at {self.current_frame}")
             # print(time.currentTime - time.outputBufferDacTime)
             # TODO: move into action after buffer is filled
             # if self.mute:
@@ -346,7 +405,7 @@ class Loop:
 
     async def start(self):
         print("starting stream")
-        self.trans_left = True
+        self.current_frame = 0
         self.stream.start()
 
     async def stop(self, reset=True):
@@ -390,21 +449,15 @@ async def main():
                 await loop.start()
             if c == "m":
                 loop.mute = not loop.mute
+                print(loop.mute)
                 if loop.mute:
-                    await loop.actions.q.put(
-                        Fade(
-                            loop.current_frame,
-                            loop.current_frame + 1024,
-                            out=True,
-                            priority=0,
-                            spawn=Mute.from_fadeout(
-                                loop.current_frame + 1024,
-                                loop.current_frame + 1024,
-                            ),
-                        )
+                    print("MUTING")
+                    loop.actions.q.put_nowait(
+                        Mute3(loop.current_frame, loop.n)
                     )
                 else:
-                    await loop.actions.q.get().unmute()
+                    mute = loop.actions.q.get_nowait()
+                    mute.unmute(loop.current_frame)
             if c == "o":
                 await loop.stop()
             if c == "r":

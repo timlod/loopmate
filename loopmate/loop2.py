@@ -153,7 +153,7 @@ class Fade(Action):
 
     def __post_init__(self):
         super().__post_init__()
-        window = sig.windows.hann((self.n) * 2)
+        window = sig.windows.hann(self.n * 2)
         if self.out:
             self.window = window[self.n :, None]
         else:
@@ -232,15 +232,26 @@ class Actions:
         if self.stop:
             # Add fade out + stop to active queue
             self.stop = False
+            self.q.put_nowait(
+                Fade(
+                    current_frame,
+                    current_frame + 1024,
+                    out=True,
+                    priority=0,
+                    spawn=Stop(current_frame + 1024, current_frame + 1024),
+                )
+            )
 
         # Activate actions (puts them in active queue)
         for i in range(self.q.qsize()):
-            action = self.q.get()
-            if action.start < current_frame < action.end:
-                self.active.put(action)
+            action = self.q.get_nowait()
+            print(f"{action} on queue")
+            if action.start <= current_frame <= action.end:
+                self.active.put_nowait(action)
 
         for i in range(self.active.qsize()):
-            action = self.active.get()
+            action = self.active.get_nowait()
+            print(f"Performing {action}")
             # Note that this only gets triggered if start is within or after
             # the current frame, that's why we can use max
             offset_a = max(0, action.start - current_frame)
@@ -248,10 +259,10 @@ class Actions:
             offset_b = action.end - current_frame
             action.run(outdata[offset_a:offset_b])
             if not action.consumed:
-                self.q.put(action)
+                self.q.put_nowait(action)
             else:
                 if action.spawn is not None:
-                    self.q.put(action.spawn)
+                    self.q.put_nowait(action.spawn)
 
 
 @dataclass

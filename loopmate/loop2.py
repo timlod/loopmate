@@ -168,7 +168,7 @@ class Fade(Action):
 class Mute(Multiplier):
     def __init__(self, n):
         silence = np.zeros(n, np.float32)
-        super().__init__(0, n, silence, recurrent=True, priority=0)
+        super().__init__(0, n, silence, recurring=True, priority=0)
 
     @classmethod
     def from_fadeout(cls, fade_end: int, length: int):
@@ -181,7 +181,7 @@ class Mute(Multiplier):
         n = length - fade_end
         silence = np.zeros(n)
         spawn = Mute(length)
-        super().__init__(
+        return Multiplier(
             fade_end,
             fade_end + n,
             silence,
@@ -196,7 +196,7 @@ class Mute(Multiplier):
         else:
             self.current_sample = start - current_frame
 
-        self.recurrent = False
+        self.recurring = False
         self.spawn = Fade(start, start + windowsize, priority=0)
 
 
@@ -204,19 +204,21 @@ class Mute(Multiplier):
 class Stop(Action):
     start: int = 0
     end: int = 0
-    recurrent: bool = False
+    recurring: bool = False
 
     def do(self, outdata):
         outdata[:] = 0.0
-        raise sd.CallbackStop
+        print("In Stop!")
+        raise sd.CallbackAbort()
 
 
 @dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
+    loop: Loop
     max: int = 20
-    q = queue.PriorityQueue(maxsize=max)
-    active = queue.PriorityQueue(maxsize=max)
+    q = asyncio.PriorityQueue(maxsize=max)
+    active = asyncio.PriorityQueue(maxsize=max)
     # TODO: if true, reset frames in all actions
     stop: bool = False
 

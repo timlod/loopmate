@@ -44,7 +44,7 @@ def chirp(
 
 device = "default"
 latency = 0.002
-blocksize = 64
+blocksize = 512
 
 # Precompute windows for pop protection
 windowsize = min(blocksize, 128)
@@ -78,6 +78,8 @@ class Action:
 
     def __post_init__(self):
         self.n = self.end - self.start
+        # Current sample !inside action between start and end
+        # don't mix up with current_frame!
         self.current_sample = 0
         self.consumed = False
 

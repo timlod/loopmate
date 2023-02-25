@@ -278,8 +278,8 @@ class Loop:
 
     def __post_init__(self):
         # Remove pop at loop edge
-        pop_window = self.sr * self.pop_window_ms
-        window = sig.windows.hann(pop_window)
+        pop_window = int(self.sr * self.pop_window_ms)
+        window = sig.windows.hann(pop_window)[:, None]
         self.audio[: pop_window // 2] *= window[: pop_window // 2]
         if pop_window > 0:
             self.audio[-(pop_window // 2) :] *= window[-(pop_window // 2) :]
@@ -296,15 +296,10 @@ class Loop:
         )
         self.trans_left = False
         self.trans_right = False
-        self.tasks = asyncio.Queue()
         self.raudio = self.audio[::-1]
-        self._current_frame_i = self.current_frame // self.blocksize
+        self._current_frame_i = self.current_frame // blocksize
 
-    def reverse(self):
-        self._reverse = not self._reserve
-
-    async def trigger(self, x):
-        pass
+        self.actions = Actions(self)
 
     def _get_callback(self):
         """
@@ -319,8 +314,8 @@ class Loop:
             chunksize = min(leftover, frames)
             next_frame = self.current_frame + chunksize
 
-            # print(f"playing at {self.current_frame}")
-            print(time.currentTime - time.outputBufferDacTime)
+            print(f"playing at {self.current_frame}")
+            # print(time.currentTime - time.outputBufferDacTime)
             # TODO: move into action after buffer is filled
             # if self.mute:
             #     outdata[:] = 0.0
@@ -333,27 +328,17 @@ class Loop:
             outdata[:chunksize] = self.audio[
                 self.current_frame : self.current_frame + chunksize
             ]
-            # To loop, add start of audio to end of output buffer:
             if leftover <= frames:
                 outdata[chunksize:] = self.audio[: frames - leftover]
+
+            self.actions.run(outdata, self.current_frame)
+            # To loop, add start of audio to end of output buffer:
+            if leftover <= frames:
                 self.current_frame = frames - leftover
                 self._current_frame_i = 0
             else:
                 self.current_frame += frames
                 self._current_frame_i += 1
-
-            # Transformations:
-            outdata[:] = self.transformation(self.gain * outdata)
-
-            # Loop over trigger list to see if we should schedule a task
-            # There should be a task queue to empty inside the next callback
-            removes = []
-            for trigger in self.triggers:
-                if trigger.sample < next_frame:
-                    if not trigger.recurrent:
-                        removes.append(trigger)
-            for trigger in removes:
-                self.triggers.remove(trigger)
 
         return callback
 

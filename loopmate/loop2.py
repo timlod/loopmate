@@ -349,10 +349,11 @@ class Loop:
 
     async def stop(self, reset=True):
         print("stopping stream")
-        if reset:
-            self.current_frame = 0
-        self.trans_right = True
-        self.stream.stop()
+        # if reset:
+        #     self.current_frame = 0
+        # self.trans_right = True
+        # self.stream.stop()
+        self.actions.stop = True
 
 
 class CharIn:
@@ -387,6 +388,21 @@ async def main():
                 await loop.start()
             if c == "m":
                 loop.mute = not loop.mute
+                if loop.mute:
+                    await loop.actions.q.put(
+                        Fade(
+                            loop.current_frame,
+                            loop.current_frame + 1024,
+                            out=True,
+                            priority=0,
+                            spawn=Mute.from_fadeout(
+                                loop.current_frame + 1024,
+                                loop.current_frame + 1024,
+                            ),
+                        )
+                    )
+                else:
+                    await loop.actions.q.get().unmute()
             if c == "o":
                 await loop.stop()
             if c == "r":
@@ -397,9 +413,13 @@ async def main():
                 loop.gain = 1.0
             if c == "c":
                 # schedule stop task at end of loop
-                loop.tasks.put(loop.stop_next)
+                pass
+                # loop.tasks.put(loop.stop_next)
             if c == "q":
                 break
+    except (sd.CallbackStop, sd.CallbackAbort):
+        print("Stopped")
+
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 

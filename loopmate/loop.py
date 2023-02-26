@@ -23,7 +23,7 @@ import soundfile as sf
 import typer
 from scipy import signal as sig
 
-from . import config
+from loopmate import config
 
 # TODO:
 #
@@ -142,19 +142,19 @@ class Loop:
             self.audio[-(pop_window // 2) :] *= window[-(pop_window // 2) :]
 
         self.n = len(self.audio)
-        self.n_frames = np.ceil(self.n / blocksize)
+        self.n_frames = np.ceil(self.n / config.blocksize)
         self.stream = sd.OutputStream(
             samplerate=self.sr,
-            device=device,
+            device=config.device,
             channels=self.audio.shape[1],
             callback=self._get_callback(),
-            latency=latency,
-            blocksize=blocksize,
+            latency=config.latency,
+            blocksize=config.blocksize,
         )
         self.trans_left = False
         self.trans_right = False
         self.raudio = self.audio[::-1]
-        self._current_frame_i = self.current_frame // blocksize
+        self._current_frame_i = self.current_frame // config.blocksize
 
         self.actions = Actions(self)
 

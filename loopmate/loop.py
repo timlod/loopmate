@@ -53,7 +53,7 @@ def chirp(
 
 
 blend_windowsize = int(config.blend_length * config.sr)
-RAMP = np.linspace(1, 0, blend_windowsize)
+RAMP = np.linspace(1, 0, blend_windowsize)[:, None]
 
 
 def blend(x, n=None):
@@ -74,6 +74,7 @@ def blend2(x1, x2, n=None):
 
 # A mute could just be a 0 multiplier that is blended in/out
 # Make sure the blend is shorter than the audio
+# Every configuration change has to trigger a blend action
 
 
 @dataclass
@@ -82,7 +83,8 @@ class Action:
     end: int
 
     _: KW_ONLY
-    recurring: bool = False
+    # If True, loop this action instead of consuming it
+    loop: bool = False
     priority: int = 3
     # Consuming this action will 'spawn'/queue this new action
     spawn: Action | None = None
@@ -94,19 +96,9 @@ class Action:
         self.current_sample = 0
         self.consumed = False
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.current_sample >= self.n:
-            if self.recurring:
-                self.current_sample = 0
-            raise StopIteration
-        return self.do
-
     def run(self, data):
         self.do(data)
-        if self.recurring:
+        if self.loop:
             self.current_sample = 0
 
         if self.current_sample >= self.n:
@@ -118,8 +110,102 @@ class Action:
     def do(self, outdata):
         raise NotImplementedError("Subclasses need to inherit this!")
 
+    def cancel(self):
+        # TODO: initiate fade-out
+        pass
+
     def set_priority(self, priority):
         self.priority = priority
+
+
+class Mute3(Action):
+    def __init__(self, start, n):
+        self.arr = np.zeros(n, np.float32)[:, None]
+        super().__init__(0, n, loop=True, priority=0)
+        self.fade_in = True
+        self.fade_out = False
+        self.fade_i = 0
+        self.current_sample = start
+
+    def do(self, data):
+        n_i = len(data)
+        mute = self.arr[self.current_sample : self.current_sample + n_i]
+        if self.fade_in:
+            ramp = RAMP[self.fade_i : self.fade_i + n_i]
+            n = len(ramp)
+            mute[:n] = ramp + mute[:n] - ramp * mute[:n]
+            self.fade_i += n
+            if n < n_i:
+                self.fade_in = False
+        if self.fade_out:
+            ramp = RAMP[self.fade_i + n_i : self.fade_i : -1]
+            n = len(ramp)
+            mute[:n] = ramp + mute[:n] - ramp * mute[:n]
+            self.fade_i -= n
+            if n < n_i:
+                self.fade_out = False
+                self.fade_in = True
+        data[:] *= mute
+        self.current_sample += n_i
+
+    def unmute(self, current_frame):
+        self.fade_i = len(RAMP)
+        self.fade_out = True
+        self.current_sample = 0
+        self.loop = False
+
+
+@dataclass
+class Actions:
+    # keeps and maintains a queue of actions that are fired in the callback
+    loop: Loop
+    max: int = 20
+    q = asyncio.PriorityQueue(maxsize=max)
+    active = asyncio.PriorityQueue(maxsize=max)
+    # TODO: if true, reset frames in all actions
+    stop: bool = False
+
+    def run(self, outdata, current_frame):
+        """Run all actions (to be called once every callback)
+
+        :param outdata: outdata as passed into sd callback (will fill portaudio
+            buffer)
+        :param current_frame: first sample index of outdata in full audio
+        """
+        if self.stop:
+            # Add fade out + stop to active queue
+            self.stop = False
+            self.q.put_nowait(
+                Fade(
+                    current_frame,
+                    current_frame + 1024,
+                    out=True,
+                    priority=0,
+                    spawn=Stop(current_frame + 1024, current_frame + 1024),
+                )
+            )
+
+        # Activate actions (puts them in active queue)
+        for i in range(self.q.qsize()):
+            action = self.q.get_nowait()
+            if action.start <= current_frame <= action.end:
+                self.active.put_nowait(action)
+
+        for i in range(self.active.qsize()):
+            action = self.active.get_nowait()
+            print(f"Performing {action}")
+            # Note that this only gets triggered if start is within or after
+            # the current frame, that's why we can use max
+            offset_a = max(0, action.start - current_frame)
+            # Indexing past the end of outdata will just return the full array
+            offset_b = action.end - current_frame
+            action.run(outdata[offset_a:offset_b])
+            if not action.consumed:
+                self.q.put_nowait(action)
+            else:
+                if action.spawn is not None:
+                    print(f"Putting {action.spawn}")
+                    self.q.put_nowait(action.spawn)
 
 
 @dataclass

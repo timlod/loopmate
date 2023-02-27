@@ -113,8 +113,8 @@ class Action:
         raise NotImplementedError("Subclasses need to inherit this!")
 
     def cancel(self):
-        # TODO: initiate fade-out
-        pass
+        self.current_sample = self.n
+        self.loop = False
 
     def set_priority(self, priority):
         self.priority = priority
@@ -192,7 +192,7 @@ class Effect(Action):
                 self.blend = None
         data[:] = data_trans
 
-    def stop(self):
+    def cancel(self):
         """Stops effect over the next buffer(s).  Fades out to avoid audio
         popping, and may thus take several callbacks to complete.
         """
@@ -387,7 +387,7 @@ async def main():
                     )
                 else:
                     mute = loop.actions.q._queue[0]
-                    mute.stop(loop.current_frame)
+                    mute.cancel()
             if c == "o":
                 await loop.stop()
             if c == "r":

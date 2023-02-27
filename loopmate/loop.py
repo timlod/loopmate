@@ -122,6 +122,15 @@ class Action:
 
 class Blender:
     def __init__(self, n=None, left_right=True):
+        """Initialize blending operation across multiple audio buffers.
+        Blending is performed as a simple linear interpolation.
+
+        Call using Blender()(a, b).
+
+        :param n: length of the blending (in samples).  By default use RAMP,
+                  the length of which is set using config.blend_length
+        :param left_right: if False, b blends into a instead of a -> b
+        """
         if n is None:
             self.ramp = RAMP
             n = len(self.ramp)
@@ -132,7 +141,14 @@ class Blender:
         self.i = 0
         self.done = False
 
-    def __call__(self, a, b):
+    def __call__(self, a: np.ndarray, b: np.ndarray):
+        """Blend a and b. Direction is controlled by self.left_right.
+
+        Call this once per callback, and stop applying once self.done.
+
+        :param a: array to blend with b
+        :param b: array to blend with a
+        """
         ramp = self.ramp[self.i : self.i + len(a)]
         n = len(ramp)
         if self.left_right:
@@ -142,7 +158,6 @@ class Blender:
             out = a
             out[:n] = ramp * b[:n] + (1 - ramp) * a[:n]
         self.i += n
-        print(f"i: {self.i}, n: {self.n}")
         if self.i == self.n:
             self.done = True
         return out

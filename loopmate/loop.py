@@ -53,7 +53,7 @@ def chirp(
 
 
 blend_windowsize = int(config.blend_length * config.sr)
-RAMP = np.linspace(1, 0, blend_windowsize)[:, None]
+RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]
 
 
 def blend(x, n=None):
@@ -98,11 +98,13 @@ class Action:
 
     def run(self, data):
         self.do(data)
-        if self.loop:
-            self.current_sample = 0
+        self.current_sample += len(data)
 
         if self.current_sample >= self.n:
-            self.consumed = True
+            if self.loop:
+                self.current_sample = 0
+            else:
+                self.consumed = True
 
     def __lt__(self, other):
         return self.priority < other.priority
@@ -118,40 +120,69 @@ class Action:
         self.priority = priority
 
 
-class Mute3(Action):
-    def __init__(self, start, n):
-        self.arr = np.zeros(n, np.float32)[:, None]
-        super().__init__(0, n, loop=True, priority=0)
-        self.fade_in = True
-        self.fade_out = False
-        self.fade_i = 0
+class Blender:
+    def __init__(self, n=None, left_right=True):
+        if n is None:
+            self.ramp = RAMP
+            n = len(self.ramp)
+        else:
+            self.ramp = np.linspace(1, 0, n, dtype=np.float32)
+        self.left_right = left_right
+        self.n = n
+        self.i = 0
+        self.done = False
+
+    def __call__(self, a, b):
+        ramp = self.ramp[self.i : self.i + len(a)]
+        n = len(ramp)
+        if self.left_right:
+            out = b
+            out[:n] = ramp * a[:n] + (1 - ramp) * b[:n]
+        else:
+            out = a
+            out[:n] = ramp * b[:n] + (1 - ramp) * a[:n]
+        self.i += n
+        print(f"i: {self.i}, n: {self.n}")
+        if self.i == self.n:
+            self.done = True
+        return out
+
+
+class Effect(Action):
+    def __init__(
+        self, start: int, n: int, transformation: Callable, priority: int = 1
+    ):
+        """Initialize effect which will fade in at a certain frame.
+
+        :param start: start effect at this frame (inside looped audio)
+        :param n: length of looped audio
+        :param transformation: callable of form f(outdata) which returns an
+            ndarray of the same size as outdata
+        :param priority: indicate priority at which to queue this action
+        """
+        super().__init__(0, n, loop=True)
+        self.blend = Blender()
         self.current_sample = start
+        self.transformation = transformation
 
     def do(self, data):
-        n_i = len(data)
-        mute = self.arr[self.current_sample : self.current_sample + n_i]
-        if self.fade_in:
-            ramp = RAMP[self.fade_i : self.fade_i + n_i]
-            n = len(ramp)
-            mute[:n] = ramp + mute[:n] - ramp * mute[:n]
-            self.fade_i += n
-            if n < n_i:
-                self.fade_in = False
-        if self.fade_out:
-            ramp = RAMP[self.fade_i + n_i : self.fade_i : -1]
-            n = len(ramp)
-            mute[:n] = ramp + mute[:n] - ramp * mute[:n]
-            self.fade_i -= n
-            if n < n_i:
-                self.fade_out = False
-                self.fade_in = True
-        data[:] *= mute
-        self.current_sample += n_i
+        """Called from within run inside callback. Applies the effect.
 
-    def unmute(self, current_frame):
-        self.fade_i = len(RAMP)
-        self.fade_out = True
-        self.current_sample = 0
+        :param data: outdata in callback, modified in-place
+        """
+        data_trans = self.transformation(data)
+        if self.blend is not None:
+            data_trans = self.blend(data, data_trans)
+            if self.blend.done:
+                self.blend = None
+        data[:] = data_trans
+
+    def stop(self):
+        """Stops effect over the next buffer(s).  Fades out to avoid audio
+        popping, and may thus take several callbacks to complete.
+        """
+        self.blend = Blender(left_right=False)
+        self.current_sample = self.n - self.blend.n
         self.loop = False
 
 
@@ -193,13 +224,23 @@ class Actions:
 
         for i in range(self.active.qsize()):
             action = self.active.get_nowait()
-            print(f"Performing {action}")
+            # print(f"Performing {action}")
             # Note that this only gets triggered if start is within or after
             # the current frame, that's why we can use max
             offset_a = max(0, action.start - current_frame)
             # Indexing past the end of outdata will just return the full array
             offset_b = action.end - current_frame
             action.run(outdata[offset_a:offset_b])
+            if any(outdata > 0):
+                print(
+                    action,
+                    current_frame,
+                    action.current_sample,
+                    action.end,
+                    offset_a,
+                    offset_b,
+                    offset_b - offset_a,
+                )
             if not action.consumed:
                 self.q.put_nowait(action)
             else:
@@ -259,14 +300,6 @@ class Loop:
 
             # print(f"playing at {self.current_frame}")
             # print(time.currentTime - time.outputBufferDacTime)
-            # TODO: move into action after buffer is filled
-            # if self.mute:
-            #     outdata[:] = 0.0
-            #     if leftover <= frames:
-            #         self.current_frame = frames - leftover
-            #     else:
-            #         self.current_frame += frames
-            #     return
 
             outdata[:chunksize] = self.audio[
                 self.current_frame : self.current_frame + chunksize
@@ -335,11 +368,11 @@ async def main():
                 if loop.mute:
                     print("MUTING")
                     loop.actions.q.put_nowait(
-                        Mute3(loop.current_frame, loop.n)
+                        Effect(loop.current_frame, loop.n, lambda x: x * 0.0)
                     )
                 else:
-                    mute = loop.actions.q.get_nowait()
-                    mute.unmute(loop.current_frame)
+                    mute = loop.actions.q._queue[0]
+                    mute.stop(loop.current_frame)
             if c == "o":
                 await loop.stop()
             if c == "r":

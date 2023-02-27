@@ -135,7 +135,7 @@ class Blender:
             self.ramp = RAMP
             n = len(self.ramp)
         else:
-            self.ramp = np.linspace(1, 0, n, dtype=np.float32)
+            self.ramp = np.linspace(1, 0, n, dtype=np.float32)[:, None]
         self.left_right = left_right
         self.n = n
         self.i = 0
@@ -201,6 +201,47 @@ class Effect(Action):
         self.loop = False
 
 
+class Start(Action):
+    def __init__(self, start: int, priority: int = 100):
+        """Initialize effect which will fade in at a certain frame.
+
+        :param start: start effect at this frame (inside looped audio)
+        :param n: length of looped audio
+        :param transformation: callable of form f(outdata) which returns an
+            ndarray of the same size as outdata
+        :param priority: indicate priority at which to queue this action
+        """
+        blend = Blender(left_right=False)
+        super().__init__(start, start + blend.n, loop=False)
+        self.blend = blend
+
+    def do(self, data):
+        data_trans = data * 0.0
+        data_trans = self.blend(data, data_trans)
+        print(data_trans.squeeze())
+        data[:] = data_trans
+
+
+class Stop(Action):
+    def __init__(self, start: int, priority: int = 100):
+        """Initialize effect which will fade in at a certain frame.
+
+        :param start: start effect at this frame (inside looped audio)
+        :param n: length of looped audio
+        :param transformation: callable of form f(outdata) which returns an
+            ndarray of the same size as outdata
+        :param priority: indicate priority at which to queue this action
+        """
+        blend = Blender()
+        super().__init__(start, start + blend.n, loop=False)
+        self.blend = blend
+
+    def do(self, data):
+        data_trans = data * 0.0
+        data_trans = self.blend(data, data_trans)
+        data[:] = data_trans
+
+
 @dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
@@ -218,19 +259,6 @@ class Actions:
             buffer)
         :param current_frame: first sample index of outdata in full audio
         """
-        if self.stop:
-            # Add fade out + stop to active queue
-            self.stop = False
-            self.q.put_nowait(
-                Fade(
-                    current_frame,
-                    current_frame + 1024,
-                    out=True,
-                    priority=0,
-                    spawn=Stop(current_frame + 1024, current_frame + 1024),
-                )
-            )
-
         # Activate actions (puts them in active queue)
         for i in range(self.q.qsize()):
             action = self.q.get_nowait()
@@ -239,7 +267,6 @@ class Actions:
 
         for i in range(self.active.qsize()):
             action = self.active.get_nowait()
-            # print(f"Performing {action}")
             # Note that this only gets triggered if start is within or after
             # the current frame, that's why we can use max
             offset_a = max(0, action.start - current_frame)
@@ -259,6 +286,14 @@ class Actions:
             if not action.consumed:
                 self.q.put_nowait(action)
             else:
+                if isinstance(action, Stop):
+                    outdata[offset_b:] = 0.0
+                    while not self.active.empty():
+                        try:
+                            self.active.get(False)
+                        except Exception:
+                            continue
+                    raise sd.CallbackStop()
                 if action.spawn is not None:
                     print(f"Putting {action.spawn}")
                     self.q.put_nowait(action.spawn)
@@ -311,7 +346,6 @@ class Loop:
 
             leftover = self.n - self.current_frame
             chunksize = min(leftover, frames)
-            next_frame = self.current_frame + chunksize
 
             # print(f"playing at {self.current_frame}")
             # print(time.currentTime - time.outputBufferDacTime)
@@ -326,20 +360,20 @@ class Loop:
             # To loop, add start of audio to end of output buffer:
             if leftover <= frames:
                 self.current_frame = frames - leftover
-                self._current_frame_i = 0
             else:
                 self.current_frame += frames
-                self._current_frame_i += 1
 
         return callback
 
-    async def start(self):
-        print("starting stream")
+    def start(self):
+        self.stream.stop()
         self.current_frame = 0
+        self.actions.q.put_nowait(Start(self.current_frame))
         self.stream.start()
 
     async def stop(self, reset=True):
         print("stopping stream")
+        self.actions.q.put_nowait(Stop(self.current_frame))
         # if reset:
         #     self.current_frame = 0
         # self.trans_right = True
@@ -376,7 +410,7 @@ async def main():
             c = await prompt()
             print(c, end="\n\r")
             if c == "s":
-                await loop.start()
+                loop.start()
             if c == "m":
                 loop.mute = not loop.mute
                 print(loop.mute)

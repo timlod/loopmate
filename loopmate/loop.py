@@ -248,8 +248,6 @@ class Actions:
     max: int = 20
     q = asyncio.PriorityQueue(maxsize=max)
     active = asyncio.PriorityQueue(maxsize=max)
-    # TODO: if true, reset frames in all actions
-    stop: bool = False
 
     def run(self, outdata, current_frame):
         """Run all actions (to be called once every callback)
@@ -375,7 +373,6 @@ class Loop:
         #     self.current_frame = 0
         # self.trans_right = True
         # self.stream.stop()
-        self.actions.stop = True
 
 
 class CharIn:

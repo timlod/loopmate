@@ -26,13 +26,6 @@ from scipy import signal as sig
 
 from loopmate import config
 
-# TODO:
-#
-# - wrapper class around tasks that handles e.g. a full mute, with fade in/mute
-# - don't use action queue the way it currently works, or add some outer list
-# - that holds current tasks such that they can be selected
-# - allow tasks to be cancelled immediately / in the next callback
-
 
 def chirp(
     f0, f1, l=10, a=1.0, method: str = "logarithmic", phi=-90, sr: int = 44100
@@ -277,16 +270,6 @@ class Actions:
             # Indexing past the end of outdata will just return the full array
             offset_b = action.end - current_frame
             action.run(outdata[offset_a:offset_b])
-            if any(outdata > 0):
-                print(
-                    action,
-                    current_frame,
-                    action.current_sample,
-                    action.end,
-                    offset_a,
-                    offset_b,
-                    offset_b - offset_a,
-                )
             if action.consumed:
                 self.actions.remove(action)
                 if isinstance(action, Stop):

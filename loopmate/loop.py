@@ -7,6 +7,7 @@ import termios
 import threading
 import time
 import tty
+from collections import deque
 from dataclasses import KW_ONLY, dataclass, field
 from enum import Enum, member
 from pathlib import Path
@@ -246,8 +247,9 @@ class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
     loop: Loop
     max: int = 20
-    q = asyncio.PriorityQueue(maxsize=max)
+    actions: list = field(default_factory=deque)
     active = asyncio.PriorityQueue(maxsize=max)
+    mute: None | Action = None
 
     def run(self, outdata, current_frame):
         """Run all actions (to be called once every callback)
@@ -256,9 +258,14 @@ class Actions:
             buffer)
         :param current_frame: first sample index of outdata in full audio
         """
+
+        if self.mute is not None:
+            self.mute.run(outdata)
+            if self.mute.consumed:
+                self.mute = None
+
         # Activate actions (puts them in active queue)
-        for i in range(self.q.qsize()):
-            action = self.q.get_nowait()
+        for action in self.actions:
             if action.start <= current_frame <= action.end:
                 self.active.put_nowait(action)
 
@@ -280,9 +287,8 @@ class Actions:
                     offset_b,
                     offset_b - offset_a,
                 )
-            if not action.consumed:
-                self.q.put_nowait(action)
-            else:
+            if action.consumed:
+                self.actions.remove(action)
                 if isinstance(action, Stop):
                     outdata[offset_b:] = 0.0
                     while not self.active.empty():
@@ -293,7 +299,7 @@ class Actions:
                     raise sd.CallbackStop()
                 if action.spawn is not None:
                     print(f"Putting {action.spawn}")
-                    self.q.put_nowait(action.spawn)
+                    self.actions.append(action.spawn)
 
 
 @dataclass
@@ -360,19 +366,16 @@ class Loop:
 
         return callback
 
-    def start(self):
+    async def start(self):
         self.stream.stop()
-        self.current_frame = 0
-        self.actions.q.put_nowait(Start(self.current_frame))
+        # self.current_frame = 0
+        self.actions.actions.append(Start(self.current_frame))
         self.stream.start()
+        await asyncio.sleep(0.1)
 
-    async def stop(self, reset=True):
-        print("stopping stream")
-        self.actions.q.put_nowait(Stop(self.current_frame))
-        # if reset:
-        #     self.current_frame = 0
-        # self.trans_right = True
-        # self.stream.stop()
+    async def stop(self):
+        print("Stopping stream action.")
+        self.actions.actions.append(Stop(self.current_frame))
 
 
 class CharIn:
@@ -404,18 +407,15 @@ async def main():
             c = await prompt()
             print(c, end="\n\r")
             if c == "s":
-                loop.start()
+                await loop.start()
             if c == "m":
-                loop.mute = not loop.mute
-                print(loop.mute)
-                if loop.mute:
+                if loop.actions.mute is None:
                     print("MUTING")
-                    loop.actions.q.put_nowait(
-                        Effect(loop.current_frame, loop.n, lambda x: x * 0.0)
+                    loop.actions.mute = Effect(
+                        loop.current_frame, loop.n, lambda x: x * 0.0
                     )
                 else:
-                    mute = loop.actions.q._queue[0]
-                    mute.cancel()
+                    loop.actions.mute.cancel()
             if c == "o":
                 await loop.stop()
             if c == "r":

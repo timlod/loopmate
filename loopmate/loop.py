@@ -7,7 +7,7 @@ import termios
 import threading
 import time
 import tty
-from dataclasses import KW_ONLY, dataclass
+from dataclasses import KW_ONLY, dataclass, field
 from enum import Enum, member
 from pathlib import Path
 from typing import Callable
@@ -218,7 +218,6 @@ class Start(Action):
     def do(self, data):
         data_trans = data * 0.0
         data_trans = self.blend(data, data_trans)
-        print(data_trans.squeeze())
         data[:] = data_trans
 
 
@@ -328,10 +327,7 @@ class Loop:
             latency=config.latency,
             blocksize=config.blocksize,
         )
-        self.trans_left = False
-        self.trans_right = False
         self.raudio = self.audio[::-1]
-        self._current_frame_i = self.current_frame // config.blocksize
 
         self.actions = Actions(self)
 
@@ -357,6 +353,7 @@ class Loop:
                 outdata[chunksize:] = self.audio[: frames - leftover]
 
             self.actions.run(outdata, self.current_frame)
+
             # To loop, add start of audio to end of output buffer:
             if leftover <= frames:
                 self.current_frame = frames - leftover

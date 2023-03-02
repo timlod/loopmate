@@ -39,6 +39,7 @@ class Audio:
     loop_length: int | None = None
     pos_start: int = 0
     current_frame: int = 0
+    remove_pop: bool = True
 
     def __post_init__(self):
         # Remove pop at loop edge
@@ -46,9 +47,6 @@ class Audio:
         if self.loop_length is None:
             self.loop_length = self.n
 
-        n_pw = len(POP_WINDOW) // 2
-        self.audio[:n_pw] *= POP_WINDOW[:n_pw]
-        self.audio[-n_pw:] *= POP_WINDOW[-n_pw:]
         self.n_frames = np.ceil(self.n / config.blocksize)
         self.current_frame = 0
 
@@ -72,6 +70,12 @@ class Audio:
             ]
         )
         self.n += right
+
+        if self.remove_pop:
+            n_pw = len(POP_WINDOW) // 2
+            self.audio[:n_pw] *= POP_WINDOW[:n_pw]
+            self.audio[-n_pw:] *= POP_WINDOW[-n_pw:]
+
         self.actions = Actions(self)
 
     def get_n(self, frames: int):

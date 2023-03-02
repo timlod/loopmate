@@ -26,49 +26,78 @@ from scipy import signal as sig
 
 from loopmate import config
 
-
-def chirp(
-    f0, f1, l=10, a=1.0, method: str = "logarithmic", phi=-90, sr: int = 44100
-):
-    """
-    Generates a sine sweep between two frequencies of a given length.
-    :param f0: Frequency (in Hertz) at t=0
-    :param f1: Frequency (in Hertz) at t=l*sr (end frequency of the sweep)
-    :param l: Length (in seconds) of the sweep
-    :param a: Amplitude scaling factor (default=1), can be array-like of
-              length l * sr to provide element-wise scaling.
-    :param method: linear, logarithmic, quadratic or hyperbolic
-    :param phi: Phase offset in degrees (default=-90 - to start at 0 amplitude)
-    :param sr: Sampling rate of the generated waveform (default=44100 Hz)
-    :return: Array containing the sweep
-    """
-    t = np.linspace(0, l, int(l * sr), endpoint=False)
-    return a * sig.chirp(t, f0, l, f1, method=method, phi=phi)
-
-
 blend_windowsize = int(config.blend_length * config.sr)
 RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]
+POP_WINDOW = sig.windows.hann(int(config.sr * config.blend_length))[:, None]
 
 
-def blend(x, n=None):
-    if n is None:
-        ramp = np.linspace(1, 0, n)
-    else:
-        ramp = RAMP
-    return ramp + x - ramp * x
+@dataclass
+class Audio:
+    # store info about different audio files to loop, perhaps with actions
+    # around them as well, i.e. meter, bpm, etc.
+    audio: np.ndarray
+    loop_length: int | None = None
+    pos_start: int = 0
+    current_frame: int = 0
 
+    def __post_init__(self):
+        # Remove pop at loop edge
+        self.n, self.channels = self.audio.shape
+        if self.loop_length is None:
+            self.loop_length = self.n
 
-def blend2(x1, x2, n=None):
-    if n is None:
-        ramp = np.linspace(1, 0, n)
-    else:
-        ramp = RAMP
-    return ramp * x1 + (1 - ramp) * x2
+        n_pw = len(POP_WINDOW) // 2
+        self.audio[:n_pw] *= POP_WINDOW[:n_pw]
+        self.audio[-n_pw:] *= POP_WINDOW[-n_pw:]
+        self.n_frames = np.ceil(self.n / config.blocksize)
+        self.current_frame = 0
 
+        left = self.pos_start
+        self.n += left
+        if self.n <= self.loop_length:
+            right = self.loop_length - self.n
+            self.n_loop_iter = 1
+        else:
+            # Need to zero-pad right to a power of 2 amount of loop iterations
+            self.n_loop_iter = int(
+                2 * np.ceil(np.log2(self.n / self.loop_length))
+            )
+            right = self.n_loop_iter * self.loop_length - self.n
 
-# A mute could just be a 0 multiplier that is blended in/out
-# Make sure the blend is shorter than the audio
-# Every configuration change has to trigger a blend action
+        self.audio = np.concatenate(
+            [
+                np.zeros((left, self.channels), dtype=np.float32),
+                self.audio,
+                np.zeros((right, self.channels), dtype=np.float32),
+            ]
+        )
+        self.n += right
+        self.actions = Actions(self)
+
+    def get_n(self, frames: int):
+        """Return the next batch of audio in the loop
+
+        :param frames: number of audio samples to return
+        """
+        leftover = self.n - self.current_frame
+        chunksize = min(leftover, frames)
+
+        if leftover <= frames:
+            out = self.audio[
+                np.r_[
+                    self.current_frame : self.current_frame + chunksize,
+                    : frames - leftover,
+                ]
+            ]
+            self.current_frame = frames - leftover
+        else:
+            out = self.audio[
+                self.current_frame : self.current_frame + chunksize
+            ]
+            self.current_frame += frames
+
+        self.actions.run(out, self.current_frame)
+        return out
 
 
 @dataclass
@@ -241,7 +270,9 @@ class Actions:
     loop: Loop
     max: int = 20
     actions: list = field(default_factory=deque)
-    active = asyncio.PriorityQueue(maxsize=max)
+    active: asyncio.PriorityQueue = field(
+        default_factory=asyncio.PriorityQueue
+    )
     mute: None | Action = None
 
     def run(self, outdata, current_frame):
@@ -261,6 +292,7 @@ class Actions:
         for action in self.actions:
             if action.start <= current_frame <= action.end:
                 self.active.put_nowait(action)
+                print(f"putting {action}, {current_frame}")
 
         for i in range(self.active.qsize()):
             action = self.active.get_nowait()
@@ -285,141 +317,110 @@ class Actions:
                     self.actions.append(action.spawn)
 
 
-@dataclass
 class Loop:
-    audio: np.ndarray
-    gain: float = 1.0
-    mute: bool = False
-    transformation: callable = lambda x: x
-    _reverse: bool = False
-    current_frame: int = 0
-    sr: int = 96000
-    pop_window_ms: float = 0.005
+    def __init__(self, anchor: Audio | None = None):
+        self.audios = []
+        self.anchor = anchor
+        if anchor is not None:
+            self.audios.append(anchor)
 
-    def __post_init__(self):
-        # Remove pop at loop edge
-        pop_window = int(self.sr * self.pop_window_ms)
-        window = sig.windows.hann(pop_window)[:, None]
-        self.audio[: pop_window // 2] *= window[: pop_window // 2]
-        if pop_window > 0:
-            self.audio[-(pop_window // 2) :] *= window[-(pop_window // 2) :]
+        # Always record the latest 2*latency amount of buffers so we can look a
+        # little into the past when recording
+        self.recent_audio = queue.deque(
+            maxlen=int(
+                np.ceil(config.latency * config.sr * 2 / config.blocksize)
+            )
+        )
+        self.recording = []
 
-        self.n = len(self.audio)
-        self.n_frames = np.ceil(self.n / config.blocksize)
-        self.stream = sd.OutputStream(
-            samplerate=self.sr,
+        # Global actions applied to fully mixed audio
+        self.actions = Actions(self)
+
+        self.stream = sd.Stream(
+            samplerate=config.sr,
             device=config.device,
-            channels=self.audio.shape[1],
+            channels=2,
             callback=self._get_callback(),
             latency=config.latency,
             blocksize=config.blocksize,
         )
-        self.raudio = self.audio[::-1]
+        self.rtimes = []
+        self.rf = False
 
-        self.actions = Actions(self)
+    def add_track(self, audio):
+        if len(self.audios) == 0:
+            self.anchor = Audio(audio)
+            self.audios.append(self.anchor)
+        else:
+            self.audios.append(Audio(audio, self.anchor.loop_length))
 
     def _get_callback(self):
         """
         Creates callback function for this loop.
         """
 
-        def callback(outdata, frames, time, status):
+        def callback(indata, outdata, frames, time, status):
             if status:
                 print(status)
 
-            leftover = self.n - self.current_frame
-            chunksize = min(leftover, frames)
+            current_frame = self.anchor.current_frame
 
-            # print(f"playing at {self.current_frame}")
-            # print(time.currentTime - time.outputBufferDacTime)
+            if self.rf:
+                self.recording.append(indata.copy())
+                self.rtimes.append(time.inputBufferAdcTime)
+            self.recent_audio.append((time.inputBufferAdcTime, indata.copy()))
 
-            outdata[:chunksize] = self.audio[
-                self.current_frame : self.current_frame + chunksize
-            ]
-            if leftover <= frames:
-                outdata[chunksize:] = self.audio[: frames - leftover]
+            outdata[:] = 0.0
+            for audio in self.audios:
+                a = audio.get_n(frames)
+                outdata[:] += a
 
-            self.actions.run(outdata, self.current_frame)
+            if self.anchor is not None:
+                self.actions.run(outdata, current_frame)
 
-            # To loop, add start of audio to end of output buffer:
-            if leftover <= frames:
-                self.current_frame = frames - leftover
-            else:
-                self.current_frame += frames
+            # print(
+            #     time.currentTime, time.currentTime - time.outputBufferDacTime
+            # )
 
         return callback
 
     async def start(self):
         self.stream.stop()
         # self.current_frame = 0
-        self.actions.actions.append(Start(self.current_frame))
+        if self.anchor is not None:
+            self.actions.actions.append(Start(self.anchor.current_frame))
         self.stream.start()
-        await asyncio.sleep(0.1)
+        sd.sleep(200)
 
-    async def stop(self):
-        print("Stopping stream action.")
-        self.actions.actions.append(Stop(self.current_frame))
+    def stop(self):
+        if self.anchor is not None:
+            print(f"Stopping stream action. {self.anchor.current_frame}")
+            self.actions.actions.append(Stop(self.anchor.current_frame))
 
-
-class CharIn:
-    def __init__(self, loop=None):
-        self.loop = loop or asyncio.get_event_loop()
-        self.q = asyncio.Queue()
-        self.loop.add_reader(sys.stdin, self.got_input)
-
-    def got_input(self):
-        asyncio.ensure_future(self.q.put(sys.stdin.read(1)), loop=self.loop)
-
-    async def __call__(self):
-        return await self.q.get()
-
-
-async def main():
-    print(sd.query_devices())
-    sr = 96000
-    sweep = 0.2 * chirp(200, 1000, 2, method="linear", sr=sr)
-    loop = Loop(sweep[:, None])
-    print(loop)
-
-    try:
-        prompt = CharIn()
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        tty.setraw(fd)
-        while True:
-            c = await prompt()
-            print(c, end="\n\r")
-            if c == "s":
-                await loop.start()
-            if c == "m":
-                if loop.actions.mute is None:
-                    print("MUTING")
-                    loop.actions.mute = Effect(
-                        loop.current_frame, loop.n, lambda x: x * 0.0
-                    )
-                else:
-                    loop.actions.mute.cancel()
-            if c == "o":
-                await loop.stop()
-            if c == "r":
-                loop.reverse = True
-            if c == "a":
-                loop.gain = 0.5
-            if c == "b":
-                loop.gain = 1.0
-            if c == "c":
-                # schedule stop task at end of loop
-                pass
-                # loop.tasks.put(loop.stop_next)
-            if c == "q":
-                break
-    except (sd.CallbackStop, sd.CallbackAbort):
-        print("Stopped")
-
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    def record(self):
+        # TODO:
+        rt = self.stream.time
+        print(f"Stream time: {self.stream.time}")
+        self.rf = not self.rf
+        if self.rf:
+            print("Starting recording")
+            while True:
+                try:
+                    t, a = self.recent_audio.popleft()
+                except IndexError:
+                    break
+                if rt - 0.005 < t:
+                    self.recording.append(a)
+                    self.rtimes.append(t)
+        if not self.rf:
+            print("Stopping recording")
+            while True:
+                try:
+                    t = self.rtimes.pop()
+                except IndexError:
+                    break
+                if rt + 0.005 < t:
+                    self.recording.pop()
+            self.add_track(np.concatenate(self.recording))
+            self.rtimes.clear()
+            self.recording.clear()

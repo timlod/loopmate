@@ -324,12 +324,10 @@ class Loop:
         if anchor is not None:
             self.audios.append(anchor)
 
-        # Always record the latest 2*latency amount of buffers so we can look a
-        # little into the past when recording
+        # Always record the latest second buffers so we can look a little into
+        # the past when recording
         self.recent_audio = queue.deque(
-            maxlen=int(
-                np.ceil(config.latency * config.sr * 2 / config.blocksize)
-            )
+            maxlen=int(np.ceil(config.sr / config.blocksize))
         )
         self.recording = []
 

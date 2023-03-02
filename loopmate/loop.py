@@ -478,12 +478,34 @@ class Recording:
         blend_frames = config.blend_length * config.sr
         if self.quantized_start_frame == 0:
             if self.record_array_start < 0:
-                blend = all[blend_frames : -self.record_array_start]
+                blend = all[: -self.record_array_start]
+                if (blend_missing := blend_frames - len(blend)) > 0:
+                    blend = np.concatenate(
+                        (
+                            np.zeros(blend_missing, all.shape[1], np.float32),
+                            blend,
+                        )
+                    )
+                else:
+                    blend = blend[-blend_frames:]
                 all = all[-self.record_array_start :]
             else:
                 blend = np.zeros((blend_frames, all.shape[1]), np.float32)
 
-        # Instead of fading/blending with 0, blend the audio before at the end
+        quantized_end_frame = self.quantize(end_frame, False)
+        all = all[: quantized_end_frame - self.quantized_start_frame]
+
+        if (quantized_end_frame % self.loop_length) == 0:
+            all[-blend_frames:] = (
+                RAMP * all[-blend_frames:] + (1 - RAMP) * blend
+            )
+            rp = False
+        else:
+            rp = True
+
+        return Audio(
+            all, self.loop_length, self.quantized_start_frame, remove_pop=rp
+        )
 
     def quantize(self, frame, start=True, lenience=0.2):
         """Quantize start or end recording marker to the loop boundary if

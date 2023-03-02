@@ -450,3 +450,64 @@ class Loop:
             self.add_track(np.concatenate(self.recording))
             self.rtimes.clear()
             self.recording.clear()
+@dataclass
+class Recording:
+    recordings: list[np.ndarray] = field(default_factory=list)
+    reference_frame: int
+    start_frame: int
+    loop_length: int
+    quantize_ms: int = 10
+
+    def __post_init__(self):
+        lengths = [len(x) for x in self.recordings]
+        n = sum(lengths)
+        # This will be negative if we want to record around frame 0
+        self.record_array_start = self.reference_frame - sum(lengths[:-1])
+        assert (
+            self.start_frame > n + self.record_array_start
+        ), "The time we pressed start should be within the pre-recorded frames"
+        self.quantized_start_frame = self.quantize(self.start_frame)
+
+    def finish(self, end_frame):
+        all = np.concatenate(self.recordings)
+
+        blend_frames = config.blend_length * config.sr
+        if self.quantized_start_frame == 0:
+            if self.record_array_start < 0:
+                blend = all[blend_frames : -self.record_array_start]
+                all = all[-self.record_array_start :]
+            else:
+                blend = np.zeros((blend_frames, all.shape[1]), np.float32)
+
+        # Instead of fading/blending with 0, blend the audio before at the end
+
+    def quantize(self, frame, start=True, lenience=0.2):
+        """Quantize start or end recording marker to the loop boundary if
+        within some interval from them.
+
+        :param frame: start or end recording marker
+        :param start: True for start, or False for end
+        :param lenience: quantize if within this many seconds from the loop
+            boundary
+
+            For example, for sr=48000, the lenience (at 200ms) is 9600 samples.
+            If the end marker is at between 38400 and 57600, it will instead be
+            set to 48000, the full loop.
+        """
+        loop_n, frame_rem = np.divmod(frame, self.loop_length)
+        lenience = config.sr * lenience
+        if start:
+            if frame < lenience:
+                return 0
+            elif frame > (self.loop_length - lenience):
+                return 0
+            else:
+                return frame
+        else:
+            if frame_rem < lenience:
+                return loop_n * self.loop_length
+            elif frame_rem > (self.loop_length - lenience):
+                return (loop_n + 1) * self.loop_length
+            else:
+                return frame
+

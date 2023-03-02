@@ -427,33 +427,57 @@ class Loop:
             return self.anchor.loop_length + frame
         else:
             return frame
+
+    # def record(self):
+    #     # TODO: put start time correct.y
+    #     rt = self.stream.time
+    #     print(
+    #         f"Current frame: {self.frame_times[0]}, time frame: {self.exact_time_frame(rt)}"
+    #     )
+    #     self.rf = not self.rf
+    #     if self.rf:
+    #         print("Starting recording")
+    #         while True:
+    #             try:
+    #                 t, a = self.recent_audio.popleft()
+    #             except IndexError:
+    #                 break
+    #             if rt - 0.005 < t:
+    #                 self.recording.append(a)
+    #                 self.rtimes.append(t)
+    #     else:
+    #         print("Stopping recording")
+    #         while True:
+    #             try:
+    #                 t = self.rtimes.pop()
+    #             except IndexError:
+    #                 break
+    #             if rt + 0.005 < t:
+    #                 self.recording.pop()
+    #         self.add_track(np.concatenate(self.recording))
+    #         self.rtimes.clear()
+    #         self.recording.clear()
+    #     print(self.stream.cpu_load)
+
     def record(self):
-        # TODO:
-        rt = self.stream.time
-        print(f"Stream time: {self.stream.time}")
-        self.rf = not self.rf
-        if self.rf:
-            print("Starting recording")
-            while True:
-                try:
-                    t, a = self.recent_audio.popleft()
-                except IndexError:
-                    break
-                if rt - 0.005 < t:
-                    self.recording.append(a)
-                    self.rtimes.append(t)
-        if not self.rf:
-            print("Stopping recording")
-            while True:
-                try:
-                    t = self.rtimes.pop()
-                except IndexError:
-                    break
-                if rt + 0.005 < t:
-                    self.recording.pop()
-            self.add_track(np.concatenate(self.recording))
-            self.rtimes.clear()
-            self.recording.clear()
+        # TODO: put start time correct.y
+        t = self.stream.time
+        frame = self.time_frame(t)
+        if self.recording is None:
+            # self.frame_times[0] (current_frame) will respond to the latest
+            # item in recent_audio
+            print()
+            self.recording = Recording(
+                list(self.recent_audio),
+                self.frame_times[0],
+                frame,
+                self.anchor.loop_length if self.anchor is not None else None,
+            )
+        else:
+            self.add_track(self.recording.finish(frame))
+        print(self.stream.cpu_load)
+
+
 @dataclass
 class Recording:
     recordings: list[np.ndarray]

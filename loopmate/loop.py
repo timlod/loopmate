@@ -456,45 +456,52 @@ class Loop:
             self.recording.clear()
 @dataclass
 class Recording:
-    recordings: list[np.ndarray] = field(default_factory=list)
+    recordings: list[np.ndarray]
     reference_frame: int
     start_frame: int
-    loop_length: int
-    quantize_ms: int = 10
+    loop_length: int | None = None
 
     def __post_init__(self):
         lengths = [len(x) for x in self.recordings]
         n = sum(lengths)
         # This will be negative if we want to record around frame 0
         self.record_array_start = self.reference_frame - sum(lengths[:-1])
-        assert (
-            self.start_frame > n + self.record_array_start
-        ), "The time we pressed start should be within the pre-recorded frames"
-        self.quantized_start_frame = self.quantize(self.start_frame)
+        assert self.start_frame < n + self.record_array_start, (
+            "The time we pressed start should be within the pre-recorded frames!"
+            f" sf: {self.start_frame}, ras: {self.record_array_start}, n: {n}"
+            f" n+ras: {n + self.record_array_start}"
+        )
+        self.quantized_start_frame = self.quantize(
+            self.start_frame, lenience=config.quantize_ms
+        )
+
+    def append(self, indata):
+        self.recordings.append(indata)
 
     def finish(self, end_frame):
         all = np.concatenate(self.recordings)
 
         blend_frames = config.blend_length * config.sr
         if self.quantized_start_frame == 0:
+            # Use the pre-recording to blend at the end of the loop if it's a
+            # full loop
             if self.record_array_start < 0:
                 blend = all[: -self.record_array_start]
-                if (blend_missing := blend_frames - len(blend)) > 0:
-                    blend = np.concatenate(
-                        (
-                            np.zeros(blend_missing, all.shape[1], np.float32),
-                            blend,
-                        )
-                    )
+                if len(blend) < blend_frames:
+                    blend = np.zeros((blend_frames, all.shape[1]), np.float32)
                 else:
                     blend = blend[-blend_frames:]
                 all = all[-self.record_array_start :]
             else:
                 blend = np.zeros((blend_frames, all.shape[1]), np.float32)
 
-        quantized_end_frame = self.quantize(end_frame, False)
-        all = all[: quantized_end_frame - self.quantized_start_frame]
+        quantized_end_frame = self.quantize(
+            end_frame, False, config.quantize_ms
+        )
+        all = all[self.quantized_start_frame : quantized_end_frame]
 
+        if self.loop_length is None:
+            self.loop_length = quantized_end_frame - self.quantized_start_frame
         if (quantized_end_frame % self.loop_length) == 0:
             all[-blend_frames:] = (
                 RAMP * all[-blend_frames:] + (1 - RAMP) * blend

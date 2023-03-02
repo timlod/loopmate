@@ -344,6 +344,8 @@ class Loop:
         )
         self.rtimes = []
         self.rf = False
+        self.last_out = None
+        self.frame_times = None
 
     def add_track(self, audio):
         if len(self.audios) == 0:
@@ -360,8 +362,13 @@ class Loop:
         def callback(indata, outdata, frames, time, status):
             if status:
                 print(status)
-
             current_frame = self.anchor.current_frame
+            self.frame_times = (
+                current_frame,
+                time.currentTime,
+                time.inputBufferAdcTime,
+                time.outputBufferDacTime,
+            )
 
             if self.rf:
                 self.recording.append(indata.copy())
@@ -376,9 +383,9 @@ class Loop:
             if self.anchor is not None:
                 self.actions.run(outdata, current_frame)
 
-            # print(
-            #     time.currentTime, time.currentTime - time.outputBufferDacTime
-            # )
+            # Store last output buffer to potentially send a slightly delayed
+            # version to headphones (to match the speaker sound latency)
+            self.last_out = outdata.copy()
 
         return callback
 

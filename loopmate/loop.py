@@ -271,7 +271,7 @@ class Stop(Action):
 @dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
-    loop: Loop
+    loop: Loop | Audio
     max: int = 20
     actions: list = field(default_factory=deque)
     active: asyncio.PriorityQueue = field(

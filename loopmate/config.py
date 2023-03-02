@@ -13,3 +13,4 @@ blocksize = 256
 # Length (in ms) of blending window, e.g. used to remove pops in muting, or
 # applying transformations to audio
 blend_length = 0.005
+quantize_ms = 0.2

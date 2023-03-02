@@ -333,7 +333,7 @@ class Loop:
         self.recent_audio = queue.deque(
             maxlen=int(np.ceil(config.sr / config.blocksize))
         )
-        self.recording = []
+        self.recording = None
 
         # Global actions applied to fully mixed audio
         self.actions = Actions(self)
@@ -353,10 +353,14 @@ class Loop:
 
     def add_track(self, audio):
         if len(self.audios) == 0:
-            self.anchor = Audio(audio)
+            if not isinstance(audio, Audio):
+                audio = Audio(audio)
+            self.anchor = audio
             self.audios.append(self.anchor)
         else:
-            self.audios.append(Audio(audio, self.anchor.loop_length))
+            if not isinstance(audio, Audio):
+                audio = Audio(audio, self.anchor.loop_length)
+            self.audios.append(audio)
 
     def _get_callback(self):
         """
@@ -366,7 +370,11 @@ class Loop:
         def callback(indata, outdata, frames, time, status):
             if status:
                 print(status)
-            current_frame = self.anchor.current_frame
+
+            if self.anchor is None:
+                current_frame = 0
+            else:
+                current_frame = self.anchor.current_frame
             self.frame_times = (
                 current_frame,
                 time.currentTime,
@@ -374,10 +382,15 @@ class Loop:
                 time.outputBufferDacTime,
             )
 
-            if self.rf:
+            # if self.rf:
+            #     self.recording.append(indata.copy())
+            #     self.rtimes.append(time.inputBufferAdcTime)
+            # self.recent_audio.append((time.inputBufferAdcTime, indata.copy()))
+            self.recent_audio.append(indata.copy())
+
+            # New
+            if self.recording is not None:
                 self.recording.append(indata.copy())
-                self.rtimes.append(time.inputBufferAdcTime)
-            self.recent_audio.append((time.inputBufferAdcTime, indata.copy()))
 
             outdata[:] = 0.0
             for audio in self.audios:

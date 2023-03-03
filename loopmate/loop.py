@@ -48,7 +48,6 @@ class Audio:
             self.loop_length = self.n
 
         self.n_frames = np.ceil(self.n / config.blocksize)
-        self.current_frame = 0
 
         left = self.pos_start
         self.n += left
@@ -324,6 +323,7 @@ class Actions:
 class Loop:
     def __init__(self, anchor: Audio | None = None):
         self.audios = []
+        self.new_audios = queue.Queue()
         self.anchor = anchor
         if anchor is not None:
             self.audios.append(anchor)
@@ -360,6 +360,7 @@ class Loop:
         else:
             if not isinstance(audio, Audio):
                 audio = Audio(audio, self.anchor.loop_length)
+            self.new_audios.put(audio)
             self.audios.append(audio)
 
     def _get_callback(self):
@@ -399,6 +400,11 @@ class Loop:
 
             if self.anchor is not None:
                 self.actions.run(outdata, current_frame)
+
+            # Align current frame for newly put audio
+            for i in range(self.new_audios.qsize()):
+                audio = self.new_audios.get()
+                audio.current_frame = self.anchor.current_frame
 
             # Store last output buffer to potentially send a slightly delayed
             # version to headphones (to match the speaker sound latency)

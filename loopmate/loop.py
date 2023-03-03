@@ -147,12 +147,12 @@ class Action:
         self.priority = priority
 
 
-class Blender:
+class CrossFade:
     def __init__(self, n=None, left_right=True):
         """Initialize blending operation across multiple audio buffers.
         Blending is performed as a simple linear interpolation.
 
-        Call using Blender()(a, b).
+        Call using CrossFade()(a, b).
 
         :param n: length of the blending (in samples).  By default use RAMP,
                   the length of which is set using config.blend_length
@@ -203,7 +203,7 @@ class Effect(Action):
         :param priority: indicate priority at which to queue this action
         """
         super().__init__(0, n, loop=True)
-        self.blend = Blender()
+        self.blend = CrossFade()
         self.current_sample = start
         self.transformation = transformation
 
@@ -223,7 +223,7 @@ class Effect(Action):
         """Stops effect over the next buffer(s).  Fades out to avoid audio
         popping, and may thus take several callbacks to complete.
         """
-        self.blend = Blender(left_right=False)
+        self.blend = CrossFade(left_right=False)
         self.current_sample = self.n - self.blend.n
         self.loop = False
 
@@ -238,7 +238,7 @@ class Start(Action):
             ndarray of the same size as outdata
         :param priority: indicate priority at which to queue this action
         """
-        blend = Blender(left_right=False)
+        blend = CrossFade(left_right=False)
         super().__init__(start, start + blend.n, loop=False)
         self.blend = blend
 
@@ -258,7 +258,7 @@ class Stop(Action):
             ndarray of the same size as outdata
         :param priority: indicate priority at which to queue this action
         """
-        blend = Blender()
+        blend = CrossFade()
         super().__init__(start, start + blend.n, loop=False)
         self.blend = blend
 

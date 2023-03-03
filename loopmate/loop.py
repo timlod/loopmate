@@ -573,7 +573,7 @@ class Recording:
             if frame < lenience:
                 return 0, frame
             elif frame > (self.loop_length - lenience):
-                return 0, -frame
+                return 0, self.loop_length - frame
             else:
                 return frame, 0
         else:

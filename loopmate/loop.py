@@ -529,9 +529,10 @@ class Recording:
             all, self.loop_length, self.quantized_start_frame, remove_pop=rp
         )
 
-    def quantize(self, frame, start=True, lenience=0.2):
+    def quantize(self, frame, start=True, lenience=0.2) -> (int, int):
         """Quantize start or end recording marker to the loop boundary if
-        within some interval from them.
+        within some interval from them.  Also returns difference between
+        original frame and quantized frame.
 
         :param frame: start or end recording marker
         :param start: True for start, or False for end
@@ -546,16 +547,18 @@ class Recording:
         lenience = config.sr * lenience
         if start:
             if frame < lenience:
-                return 0
+                return 0, frame
             elif frame > (self.loop_length - lenience):
-                return 0
+                return 0, -frame
             else:
-                return frame
+                return frame, 0
         else:
             if frame_rem < lenience:
-                return loop_n * self.loop_length
+                return loop_n * self.loop_length, frame_rem
             elif frame_rem > (self.loop_length - lenience):
-                return (loop_n + 1) * self.loop_length
+                return (
+                    loop_n + 1
+                ) * self.loop_length, -self.loop_length + frame_rem
             else:
-                return frame
+                return frame, 0
 

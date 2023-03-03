@@ -14,3 +14,6 @@ blocksize = 256
 # applying transformations to audio
 blend_length = 0.005
 quantize_ms = 0.2
+
+
+blend_frames = int(sr * blend_length)

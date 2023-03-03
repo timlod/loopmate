@@ -374,6 +374,9 @@ class Loop:
                 current_frame = 0
             else:
                 current_frame = self.anchor.current_frame
+
+            # These times/frame refer to the frame that is processed in this
+            # callback
             self.frame_times = (
                 current_frame,
                 time.currentTime,
@@ -461,73 +464,94 @@ class Loop:
             self.recording = Recording(
                 list(self.recent_audio),
                 self.frame_times[0],
-                frame,
-                self.anchor.loop_length if self.anchor is not None else None,
+                frames_back,
+                self.anchor,
             )
         else:
-            self.add_track(self.recording.finish(frame))
+            self.add_track(self.recording.finish(frames_back))
+            self.recording = None
         print(self.stream.cpu_load)
 
 
-@dataclass
 class Recording:
-    recordings: list[np.ndarray]
-    reference_frame: int
-    start_frame: int
-    loop_length: int | None = None
+    def __init__(
+        self,
+        recordings: list[np.ndarray],
+        reference_frame: int = 0,
+        start_frame_at: int = 0,
+        anchor: Audio | None = None,
+    ):
+        # TODO:
+        # 1. get just recorded array from start to end
+        # 2. associate reference markers to those start and end
+        lengths = [len(x) for x in recordings]
+        # n = sum(lengths)
+        # This is the actual recording array index of reference_frame
+        at = sum(lengths[:-1])
 
-    def __post_init__(self):
-        lengths = [len(x) for x in self.recordings]
-        n = sum(lengths)
-        # This will be negative if we want to record around frame 0
-        self.record_array_start = self.reference_frame - sum(lengths[:-1])
-        assert self.start_frame < n + self.record_array_start, (
-            "The time we pressed start should be within the pre-recorded frames!"
-            f" sf: {self.start_frame}, ras: {self.record_array_start}, n: {n}"
-            f" n+ras: {n + self.record_array_start}"
-        )
-        self.quantized_start_frame = self.quantize(
-            self.start_frame, lenience=config.quantize_ms
-        )
+        start_frame = reference_frame - start_frame_at
+        # Quantize to anchor if it exists
+        if anchor is not None:
+            self.loop_length = anchor.loop_length
+            if start_frame < 0:
+                start_frame += self.loop_length
+            self.start_frame, move = self.quantize(start_frame)
+            start_frame_at -= move
+        else:
+            self.start_frame = 0
+            self.loop_length = None
+
+        # Separate actual recording
+        start_idx = at - start_frame_at
+        recording = np.concatenate(recordings)
+        self.end_xfade = recording[start_idx - config.blend_frames : start_idx]
+        if len(self.end_xfade) < config.blend_frames:
+            self.end_xfade = np.zeros(
+                (config.blend_frames, recording.shape[1]), np.float32
+            )
+        self.recordings = [recording[start_idx:]]
 
     def append(self, indata):
         self.recordings.append(indata)
 
-    def finish(self, end_frame):
-        all = np.concatenate(self.recordings)
+    def finish(self, end_frame_at):
+        n_final = len(self.recordings[-1])
+        recording = np.concatenate(self.recordings)
 
-        blend_frames = config.blend_length * config.sr
-        if self.quantized_start_frame == 0:
-            # Use the pre-recording to blend at the end of the loop if it's a
-            # full loop
-            if self.record_array_start < 0:
-                blend = all[: -self.record_array_start]
-                if len(blend) < blend_frames:
-                    blend = np.zeros((blend_frames, all.shape[1]), np.float32)
-                else:
-                    blend = blend[-blend_frames:]
-                all = all[-self.record_array_start :]
-            else:
-                blend = np.zeros((blend_frames, all.shape[1]), np.float32)
+        at = len(recording) - n_final
+        reference_frame = self.start_frame + at
+        end_frame = reference_frame - end_frame_at
+        if self.loop_length is not None:
+            self.end_frame, move = self.quantize(end_frame, False)
+            print(f"Moving {move} from {end_frame} to {self.end_frame}")
+            end_frame_at -= move
+        else:
+            self.end_frame = end_frame
+            self.loop_length = end_frame
 
-        quantized_end_frame = self.quantize(
-            end_frame, False, config.quantize_ms
-        )
-        all = all[self.quantized_start_frame : quantized_end_frame]
+        end_idx = at - end_frame_at
+        print(len(recording), at, end_frame_at)
+        recording = recording[:end_idx]
 
-        if self.loop_length is None:
-            self.loop_length = quantized_end_frame - self.quantized_start_frame
-        if (quantized_end_frame % self.loop_length) == 0:
-            all[-blend_frames:] = (
-                RAMP * all[-blend_frames:] + (1 - RAMP) * blend
+        if (self.end_frame % self.loop_length) == 0:
+            print(len(recording))
+            recording[-config.blend_frames :] = (
+                RAMP * recording[-config.blend_frames :]
+                + (1 - RAMP) * self.end_xfade
             )
             rp = False
         else:
             rp = True
 
-        return Audio(
-            all, self.loop_length, self.quantized_start_frame, remove_pop=rp
+        audio = Audio(
+            recording,
+            self.loop_length,
+            self.start_frame,
+            self.end_frame,
+            remove_pop=rp,
         )
+        print(audio)
+        return audio
 
     def quantize(self, frame, start=True, lenience=0.2) -> (int, int):
         """Quantize start or end recording marker to the loop boundary if

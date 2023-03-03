@@ -346,8 +346,6 @@ class Loop:
             latency=config.latency,
             blocksize=config.blocksize,
         )
-        self.rtimes = []
-        self.rf = False
         self.last_out = None
         self.frame_times = None
 
@@ -383,15 +381,11 @@ class Loop:
                 time.outputBufferDacTime,
             )
 
-            # if self.rf:
-            #     self.recording.append(indata.copy())
-            #     self.rtimes.append(time.inputBufferAdcTime)
-            # self.recent_audio.append((time.inputBufferAdcTime, indata.copy()))
-            self.recent_audio.append(indata.copy())
-
-            # New
+            # Copy necessary as indata arg is passed by reference
+            indata = indata.copy()
+            self.recent_audio.append(indata)
             if self.recording is not None:
-                self.recording.append(indata.copy())
+                self.recording.append(indata)
 
             outdata[:] = 0.0
             for audio in self.audios:
@@ -447,41 +441,19 @@ class Loop:
         else:
             return frame
 
-    # def record(self):
-    #     # TODO: put start time correct.y
-    #     rt = self.stream.time
-    #     print(
-    #         f"Current frame: {self.frame_times[0]}, time frame: {self.exact_time_frame(rt)}"
-    #     )
-    #     self.rf = not self.rf
-    #     if self.rf:
-    #         print("Starting recording")
-    #         while True:
-    #             try:
-    #                 t, a = self.recent_audio.popleft()
-    #             except IndexError:
-    #                 break
-    #             if rt - 0.005 < t:
-    #                 self.recording.append(a)
-    #                 self.rtimes.append(t)
-    #     else:
-    #         print("Stopping recording")
-    #         while True:
-    #             try:
-    #                 t = self.rtimes.pop()
-    #             except IndexError:
-    #                 break
-    #             if rt + 0.005 < t:
-    #                 self.recording.pop()
-    #         self.add_track(np.concatenate(self.recording))
-    #         self.rtimes.clear()
-    #         self.recording.clear()
-    #     print(self.stream.cpu_load)
+    def frame_delay(self, t):
+        play_delay = self.frame_times[3] - t
+        return int(play_delay * config.sr)
 
     def record(self):
-        # TODO: put start time correct.y
+        # TODO: put start time correctly
         t = self.stream.time
-        frame = self.time_frame(t)
+        print(
+            self.frame_times,
+            self.frame_times[1] - self.frame_times[2],
+            self.frame_times[1] - self.frame_times[3],
+        )
+        frames_back = self.frame_delay(t)
         if self.recording is None:
             # self.frame_times[0] (current_frame) will respond to the latest
             # item in recent_audio

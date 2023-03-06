@@ -156,6 +156,7 @@ class Loop:
             if status:
                 print(status)
 
+            # If no audio is present
             if self.anchor is None:
                 current_frame = 0
             else:
@@ -250,30 +251,11 @@ class Loop:
                 self.anchor.loop_length if self.anchor is not None else None,
             )
         else:
-            # frames_since = int(
-            #     self.callback_time.timediff(start_time) * config.sr
-            # )
-
-            # frame, move = self.recording.quantize(
-            #     self.callback_time.frame + frames_since
-            # )
-            # wait_for = (
-            #     self.callback_time.output_delay
-            #     + self.callback_time.timediff(t)
-            #     #                + move
-            # )
-            # await asyncio.sleep(wait_for)
             audio, remaining = self.recording.finish(t, self.callback_time)
             self.add_track(audio)
             wait_for = (remaining + config.latency) / config.sr
-            print(f"waiting for {wait_for}, {remaining}")
-            t2 = self.stream.time
-            print(t2 - t)
             if remaining > 0:
                 await asyncio.sleep(wait_for * 2)
-                print(
-                    f"n4: {len(self.recording.recordings)}, {self.stream.time - t2}"
-                )
                 audio.audio[-remaining:] = np.concatenate(
                     self.recording.recordings
                 )[:remaining]

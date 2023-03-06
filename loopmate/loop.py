@@ -458,65 +458,44 @@ class Loop:
         # play_delay = t - self.frame_times[1]
         return int(play_delay * config.sr)
 
-    # async def record(self):
-    #     # TODO: put start time correctly
-    #     t = self.stream.time
-    #     print(
-    #         "timediff:",
-    #         self.stream_time.timediff(t),
-    #         self.stream_time.timediff(t) * config.sr,
-
-    #     )
-    #     if self.recording is None:
-    #         frames_back = self.frame_delay(t, True)
-    #         # self.frame_times[0] (current_frame) will respond to the latest
-    #         # item in recent_audio
-    #         self.recording = Recording(
-    #             list(self.recent_audio),
-    #             self.frame_times[0],
-    #             frames_back,
-    #             self.anchor,
-    #         )
-    #     else:
-    #         frames_back = self.frame_delay(t, True)
-    #         wait_for = frames_back / config.sr
-    #         await asyncio.sleep(wait_for)
-    #         audio = self.recording.finish(0)
-    #         self.add_track(audio)
-    #         self.recording = None
-    #     print(self.stream.cpu_load)
-
     async def record(self):
         t = self.stream.time
-        print(
-            "timediff:",
-            self.callback_time,
-            self.callback_time.timediff(t),
-            self.callback_time.timediff(t) * config.sr,
-        )
         if self.recording is None:
             self.recording = Recording(
                 list(self.recent_audio),
                 self.callback_time,
                 self.stream.time,
-                self.anchor,
+                self.anchor.loop_length if self.anchor is not None else None,
             )
         else:
-            frames_since = int(
-                self.callback_time.timediff(start_time) * config.sr
-            )
+            # frames_since = int(
+            #     self.callback_time.timediff(start_time) * config.sr
+            # )
 
-            frame, move = self.recording.quantize(
-                self.callback_time.frame + frames_since
-            )
-            wait_for = (
-                self.callback_time.output_delay
-                + callback_time.timediff(t)
-                + move
-            )
-            await asyncio.sleep(wait_for)
-            audio = self.recording.finish(t + wait_for, self.callback_time)
+            # frame, move = self.recording.quantize(
+            #     self.callback_time.frame + frames_since
+            # )
+            # wait_for = (
+            #     self.callback_time.output_delay
+            #     + self.callback_time.timediff(t)
+            #     #                + move
+            # )
+            # await asyncio.sleep(wait_for)
+            audio, remaining = self.recording.finish(t, self.callback_time)
             self.add_track(audio)
+            wait_for = (remaining + config.latency) / config.sr
+            print(f"waiting for {wait_for}, {remaining}")
+            t2 = self.stream.time
+            print(t2 - t)
+            if remaining > 0:
+                await asyncio.sleep(wait_for * 2)
+                print(
+                    f"n4: {len(self.recording.recordings)}, {self.stream.time - t2}"
+                )
+                audio.audio[-remaining:] = np.concatenate(
+                    self.recording.recordings
+                )[:remaining]
+            self.recording.antipop(audio)
             self.recording = None
         print(self.stream.cpu_load)
 
@@ -527,23 +506,30 @@ class Recording:
         recordings: list[np.ndarray],
         callback_time: StreamTime,
         start_time: float,
-        anchor: Audio | None = None,
+        loop_length: Audio | None = None,
     ):
         # TODO: If there are added/dropped frames during recording, may have to
         # account for them
+
         lengths = [len(x) for x in recordings]
-        # n = sum(lengths)
 
         # Between pressing and the time the last callback happened are this
         # many frames
         frames_since = int(callback_time.timediff(start_time) * config.sr)
 
-        # Our reference will be the the frame at which a press was registered,
-        # which is the frame at callback time plus the frames elapsed since
-        if anchor is None:
+        # Our reference will be the the frame indata_at which a press was
+        # registered, which is the frame indata_at callback time plus the
+        # frames elapsed since and the (negative) output delay, which
+        # represents difference in time between buffering a sample and the
+        # sample being passed into the DAC
+        if loop_length is None:
             reference_frame = 0
         else:
-            reference_frame = callback_time.frame + frames_since
+            reference_frame = (
+                callback_time.frame
+                + frames_since
+                + int(callback_time.output_delay * config.sr)
+            )
 
         # This is the actual recording array index of reference_frame,
         # accounting for the delay from playing until getting input. Should
@@ -551,87 +537,98 @@ class Recording:
         # back the track - the output delay probably has to be accounted for in
         # the output, as in, playing it that many frames earlier
 
-        # Could also just be output delay?
-        at = sum(lengths[:-1]) + int(callback_time.full_delay * config.sr)
-        # at = sum(lengths[:-1]) + int(callback_time.input_delay * config.sr)
+        indata_at = (
+            sum(lengths[:-1])
+            + frames_since
+            + int(callback_time.input_delay * config.sr)
+        )
 
-        # Quantize to anchor if it exists
-        if anchor is not None:
-            self.loop_length = anchor.loop_length
-            if reference_frame > anchor.loop_length:
-                reference_frame -= self.loop_length
+        # Quantize to loop_length if it exists
+        if loop_length is not None:
+            self.loop_length = loop_length
+            if reference_frame > loop_length:
+                reference_frame -= loop_length
             # self.start_frame, move = start_frame, 0
             self.start_frame, move = self.quantize(reference_frame)
-            print(
-                f"Moving {move} from {reference_frame} to {self.start_frame}"
-            )
-            at += move
+            # print(
+            #     f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
+            # )
+            indata_at += move
         else:
             self.start_frame = 0
             self.loop_length = None
 
-        self.start_idx = at
-        print(self.start_frame, self.start_idx)
-        # self.end_xfade = recording[start_idx - config.blend_frames : start_idx]
-        # if len(self.end_xfade) < config.blend_frames:
-        #     self.end_xfade = np.zeros(
-        #         (config.blend_frames, recording.shape[1]), np.float32
-        #     )
-        # self.recordings = [recording[start_idx:]]
+        self.indata_start = indata_at
         self.recordings = recordings
 
     def append(self, indata):
         self.recordings.append(indata)
 
     def finish(self, t, callback_time):
-        n_final = len(self.recordings[-1])
-        recording = np.concatenate(self.recordings)
-        np.save("rec.npy", recording)
-        self.end_xfade = recording[
-            self.start_idx - config.blend_frames : self.start_idx
+        lengths = [len(x) for x in self.recordings]
+
+        # Between pressing and the time the last callback happened are this
+        # many frames
+        frames_since = int(callback_time.timediff(t) * config.sr)
+        indata_at = (
+            sum(lengths[:-1])
+            + frames_since
+            + int(callback_time.input_delay * config.sr)
+        )
+        n = indata_at - self.indata_start
+        if self.loop_length is not None:
+            reference_frame = self.start_frame + n
+            self.end_frame, move = self.quantize(reference_frame, False)
+            print(f"\n\rMove {move} to {self.end_frame}")
+            indata_at += move
+        else:
+            self.end_frame = self.loop_length = n
+
+        recording = np.zeros(
+            (indata_at - self.indata_start, self.recordings[0].shape[1]),
+            dtype=np.float32,
+        )
+        recordings = np.concatenate(self.recordings)
+        self.recordings.clear()
+        # To potentially do a more graceful blending at loop boundaries
+        self.end_xfade = recordings[
+            self.indata_start - config.blend_frames : self.indata_start
         ]
         if len(self.end_xfade) < config.blend_frames:
             self.end_xfade = np.zeros(
                 (config.blend_frames, recording.shape[1]), np.float32
             )
-        recording = recording[self.start_idx :]
 
-        at = len(recording) - n_final
-        reference_frame = self.start_frame + at
-        end_frame = reference_frame - end_frame_at
-        print(
-            f"sf: {self.start_frame}, at: {at}, n_final: {n_final}, n = {len(recording)}, ef: {end_frame}"
-        )
-        if self.loop_length is not None:
-            self.end_frame, move = self.quantize(end_frame, False)
-            print(f"Moving {move} from {end_frame} to {self.end_frame}")
-            end_frame_at += move
-        else:
-            self.end_frame = end_frame
-            self.loop_length = end_frame
+        # This is expressed in the full dimensions of recordings
+        available = min(len(recordings), indata_at)
+        recording[: available - self.indata_start] = recordings[
+            self.indata_start : available
+        ]
+        remaining = indata_at - available
 
-        end_idx = at - end_frame_at
-        print(f"rec before: {recording.shape}, eidx: {end_idx}")
-        recording = recording[:end_idx]
-
-        if (self.end_frame % self.loop_length) == 0:
-            recording[-config.blend_frames :] = (
-                RAMP * recording[-config.blend_frames :]
-                + (1 - RAMP) * self.end_xfade
-            )
-            rp = False
-        else:
-            rp = True
-
+        if (cf := callback_time.frame + lengths[-1]) > self.loop_length:
+            cf = cf - self.loop_length
         audio = Audio(
             recording,
             self.loop_length,
             self.start_frame,
-            self.end_frame,
-            remove_pop=rp,
+            cf,
+            remove_pop=False,
         )
         print(audio)
-        return audio
+
+        return audio, remaining
+
+    def antipop(self, audio):
+        if (self.end_frame % self.loop_length) == 0:
+            audio.audio[-config.blend_frames :] = (
+                RAMP * audio.audio[-config.blend_frames :]
+                + (1 - RAMP) * self.end_xfade
+            )
+        else:
+            n_pw = len(POP_WINDOW) // 2
+            audio.audio[:n_pw] *= POP_WINDOW[:n_pw]
+            audio.audio[-n_pw:] *= POP_WINDOW[-n_pw:]
 
     def quantize(self, frame, start=True, lenience=0.2) -> (int, int):
         """Quantize start or end recording marker to the loop boundary if
@@ -643,8 +640,8 @@ class Recording:
         :param lenience: quantize if within this many seconds from the loop
             boundary
 
-            For example, for sr=48000, the lenience (at 200ms) is 9600 samples.
-            If the end marker is at between 38400 and 57600, it will instead be
+            For example, for sr=48000, the lenience (indata_at 200ms) is 9600 samples.
+            If the end marker is indata_at between 38400 and 57600, it will instead be
             set to 48000, the full loop.
         """
         loop_n, frame_rem = np.divmod(frame, self.loop_length)

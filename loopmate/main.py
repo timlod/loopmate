@@ -90,10 +90,12 @@ async def main():
                     )
                 else:
                     loop.actions.mute.cancel()
+            if c == "d":
+                loop.audios.pop()
             if c == "o":
                 loop.stop()
             if c == "r":
-                loop.record()
+                await loop.record()
             if c == "a":
                 with sd.OutputStream() as s:
                     s.write(np.hstack([tom, tom]))

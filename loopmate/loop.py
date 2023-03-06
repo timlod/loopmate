@@ -210,37 +210,6 @@ class Loop:
             print(f"Stopping stream action. {self.anchor.current_frame}")
             self.actions.actions.append(Stop(self.anchor.current_frame))
 
-    def time_frame(self, t):
-        """Compute the approximate frame that was played at a given time.
-
-        Specifically, this computes the difference between the given time and
-        the time the current frame will be played by the DAC, and converts to
-        number of frames by using the sample rate.
-
-        :param current_frame: frame that we will compute relative to, should
-            probably be self.anchor.current_frame
-        :param time: time we want to check, should probably be self.stream.time
-
-        :returns:
-        """
-        play_delay = self.frame_times[3] - t
-        frames_back = int(play_delay * config.sr)
-        frame = self.frame_times[0] - frames_back
-        if frame < 0:
-            # Time was at the end of the loop
-            return self.anchor.loop_length + frame
-        else:
-            return frame
-
-    def frame_delay(self, t, start=True):
-        play_delay = self.frame_times[3] - self.frame_times[2]  # - t
-        print(f"\r {play_delay}, {int(play_delay * config.sr)}")
-        if start:
-            play_delay += t - self.frame_times[1]
-        print(f"\r {play_delay}, {int(play_delay * config.sr)}")
-        # play_delay = t - self.frame_times[1]
-        return int(play_delay * config.sr)
-
     async def record(self):
         t = self.stream.time
         if self.recording is None:

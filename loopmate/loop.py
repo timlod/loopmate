@@ -52,8 +52,6 @@ class Audio:
         if self.loop_length is None:
             self.loop_length = self.n
 
-        self.n_frames = np.ceil(self.n / config.blocksize)
-
         left = self.pos_start
         self.n += left
         if self.n <= self.loop_length:

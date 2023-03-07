@@ -118,7 +118,7 @@ class Loop:
         self.stream = sd.Stream(
             samplerate=config.sr,
             device=config.device,
-            channels=2,
+            channels=config.channels,
             callback=self._get_callback(),
             latency=config.latency,
             blocksize=config.blocksize,

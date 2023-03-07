@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import queue
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import sounddevice as sd
@@ -23,7 +23,7 @@ POP_WINDOW = sig.windows.hann(int(config.sr * config.blend_length))[:, None]
 class Audio:
     # store info about different audio files to loop, perhaps with actions
     # around them as well, i.e. meter, bpm, etc.
-    audio: np.ndarray
+    audio: np.ndarray = field(repr=False)
     loop_length: int | None = None
     pos_start: int = 0
     current_frame: int = 0

@@ -2,38 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import queue
-import sys
-import termios
-import threading
-import time
-import tty
-from collections import deque
-from dataclasses import KW_ONLY, dataclass, field
-from enum import Enum, member
-from pathlib import Path
-from typing import Callable
+from dataclasses import dataclass
 
-import matplotlib.pyplot as plt
-import mido
 import numpy as np
-import pandas as pd
-import pedalboard
-import soundcard as sc
 import sounddevice as sd
-import soundfile as sf
-import typer
 from scipy import signal as sig
 
 from loopmate import config
-from loopmate.actions import Action, Actions, Effect, Start, Stop
+from loopmate.actions import Actions, Start, Stop
 from loopmate.utils import StreamTime
 
 blend_windowsize = int(config.blend_length * config.sr)
 RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]
 POP_WINDOW = sig.windows.hann(int(config.sr * config.blend_length))[:, None]
 
-# TODO: need to keep recording after pressing stop to get the last frames after
-# the delay
+# TODO: BPM sync & metronome anchor
 
 
 @dataclass

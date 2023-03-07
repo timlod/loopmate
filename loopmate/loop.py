@@ -324,20 +324,22 @@ class Recording:
         ]
         remaining = indata_at - available
 
-        if (cf := callback_time.frame + lengths[-1]) > self.loop_length:
-            cf = cf - self.loop_length
         audio = Audio(
             recording,
             self.loop_length,
             self.start_frame,
-            cf,
+            0,
             remove_pop=False,
         )
+        if n > audio.n_loop_iter * self.loop_length:
+            n = n % self.loop_length
+        audio.current_frame = cf
         print(audio)
 
         return audio, remaining
 
     def antipop(self, audio):
+        # TODO: always crossfade, depends on whether full or partial loop
         if (self.end_frame % self.loop_length) == 0:
             audio.audio[-config.blend_frames :] = (
                 RAMP * audio.audio[-config.blend_frames :]

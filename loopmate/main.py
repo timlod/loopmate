@@ -7,21 +7,21 @@
 from __future__ import annotations
 
 import asyncio
-import queue
 import sys
 import termios
 import tty
-from collections import deque
-from dataclasses import KW_ONLY, dataclass, field
 
 import numpy as np
-import pandas as pd
+import pedalboard
 import sounddevice as sd
 import soundfile as sf
 from scipy import signal as sig
 
 from loopmate import config
-from loopmate.loop import Action, Audio, Effect, Loop, Start, Stop
+from loopmate.actions import Effect
+from loopmate.loop import Audio, Loop
+
+# TODO: implement fitting effects as actions
 
 
 def chirp(

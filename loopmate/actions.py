@@ -144,9 +144,6 @@ class Start(Action):
         """Initialize effect which will fade in at a certain frame.
 
         :param start: start effect at this frame (inside looped audio)
-        :param n: length of looped audio
-        :param transformation: callable of form f(outdata) which returns an
-            ndarray of the same size as outdata
         :param priority: indicate priority at which to queue this action
         """
         blend = CrossFade(left_right=False)
@@ -164,9 +161,6 @@ class Stop(Action):
         """Initialize effect which will fade in at a certain frame.
 
         :param start: start effect at this frame (inside looped audio)
-        :param n: length of looped audio
-        :param transformation: callable of form f(outdata) which returns an
-            ndarray of the same size as outdata
         :param priority: indicate priority at which to queue this action
         """
         blend = CrossFade()

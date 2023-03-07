@@ -172,9 +172,14 @@ class Loop:
                 self.actions.run(outdata, current_frame)
 
             # Align current frame for newly put audio
+            # TODO: only add to new_audios when appropriate - done?
             for i in range(self.new_audios.qsize()):
                 audio = self.new_audios.get()
-                audio.current_frame = self.anchor.current_frame
+                current_loop_iter = audio.current_frame // audio.loop_length
+                audio.current_frame = (
+                    current_loop_iter * audio.loop_length
+                    + self.anchor.current_frame
+                )
 
             # Store last output buffer to potentially send a slightly delayed
             # version to headphones (to match the speaker sound latency)
@@ -333,7 +338,7 @@ class Recording:
         )
         if n > audio.n_loop_iter * self.loop_length:
             n = n % self.loop_length
-        audio.current_frame = cf
+        audio.current_frame = n
         print(audio)
 
         return audio, remaining

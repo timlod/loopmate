@@ -1,36 +1,42 @@
 from dataclasses import dataclass
 
 import numpy as np
+from scipy import signal as sig
+
+
+def resample(x, sr_source, sr_target):
+    """Resample signal to target samplerat
+
+    :param x:
+    :param sr_source:
+    :param sr_target:
+    :returns:
+
+    """
+    c = sr_target / sr_source
+    n_target = int(np.round(len(x) * c))
+    return sig.resample(x, n_target)
 
 
 @dataclass
-class FoR:
-    # sample referring to the index anchored at the start of the last recorded
-    # buffer
-    reference_frame: int
-    # actual array index of reference_frame
-    at: int
-    # loop_length, should be 0 if not existing
-    n: int
+class Metre:
+    bpm: float
+    beats: int
+    divisions: int
 
-    # given rf and fb, return index to split array on
+    @property
+    def bps(self):
+        return self.bpm / 60
 
-    def __post_init__(self):
-        pass
-
-    def org(self, frames_before):
-        return self.at - frames_before
-
-    def fr(self, frames_before):
-        i = self.reference_frame - frames_before
-        if i < 0:
-            return self.n + i
-        else:
-            return i
-
-    def change_at(self, at):
-        # Should change to frames_before
-        self.at = at
+    def get_metronome(self, sr):
+        clave, msr = sf.read("../data/clave.wav", dtype=np.float32)
+        if sr != msr:
+            clave = resample(clave, msr, sr)
+        beat = int(sr / self.bps)
+        out = np.zeros(int(beat * self.beats), dtype=np.float32)
+        for i in range(self.beats):
+            out[i * beat : i * beat + len(clave)] = clave
+        return out
 
 
 class StreamTime:

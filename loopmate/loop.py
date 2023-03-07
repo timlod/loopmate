@@ -123,8 +123,8 @@ class Loop:
             latency=config.latency,
             blocksize=config.blocksize,
         )
+        self.callback_time = None
         self.last_out = None
-        self.frame_times = None
 
     def add_track(self, audio):
         if len(self.audios) == 0:
@@ -156,12 +156,6 @@ class Loop:
             # These times/frame refer to the frame that is processed in this
             # callback
             self.callback_time = StreamTime(time, current_frame)
-            self.frame_times = (
-                current_frame,
-                time.currentTime,
-                time.inputBufferAdcTime,
-                time.outputBufferDacTime,
-            )
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()

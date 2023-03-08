@@ -27,7 +27,7 @@ class Metre:
     def bps(self):
         return self.bpm / 60
 
-    def get_metronome(self, sr):
+    def get_metronome(self, sr: int):
         clave, msr = sf.read("../data/clave.wav", dtype=np.float32)
         if sr != msr:
             clave = resample(clave, msr, sr)
@@ -41,9 +41,14 @@ class Metre:
 class StreamTime:
     def __init__(self, time, frame):
         self.frame = frame
-        self.current = time.currentTime
-        self.input = time.inputBufferAdcTime
-        self.output = time.outputBufferDacTime
+        if isinstance(time, list):
+            self.current = time[0]
+            self.input = time[1]
+            self.output = time[2]
+        else:
+            self.current = time.currentTime
+            self.input = time.inputBufferAdcTime
+            self.output = time.outputBufferDacTime
 
     @property
     def full_delay(self):
@@ -64,4 +69,4 @@ class StreamTime:
         return t - self.current
 
     def __repr__(self):
-        return f"StreamTime({self.current}, {self.input}, {self.output})"
+        return f"StreamTime({self.current}, {self.input}, {self.output}, {self.frame})"

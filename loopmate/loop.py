@@ -12,7 +12,7 @@ from loopmate import config
 from loopmate.actions import Actions, Start, Stop
 from loopmate.utils import StreamTime
 
-blend_windowsize = int(config.blend_length * config.sr)
+blend_windowsize = round(config.blend_length * config.sr)
 RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]
 POP_WINDOW = sig.windows.hann(int(config.sr * config.blend_length))[:, None]
 
@@ -238,7 +238,7 @@ class Recording:
 
         # Between pressing and the time the last callback happened are this
         # many frames
-        frames_since = int(callback_time.timediff(start_time) * config.sr)
+        frames_since = round(callback_time.timediff(start_time) * config.sr)
 
         # Our reference will be the the frame indata_at which a press was
         # registered, which is the frame indata_at callback time plus the
@@ -251,7 +251,7 @@ class Recording:
             reference_frame = (
                 callback_time.frame
                 + frames_since
-                + int(callback_time.output_delay * config.sr)
+                + round(callback_time.output_delay * config.sr)
             )
 
         # This is the actual recording array index of reference_frame,
@@ -263,7 +263,7 @@ class Recording:
         indata_at = (
             sum(lengths[:-1])
             + frames_since
-            + int(callback_time.input_delay * config.sr)
+            + round(callback_time.input_delay * config.sr)
         )
 
         # Quantize to loop_length if it exists
@@ -292,11 +292,11 @@ class Recording:
 
         # Between pressing and the time the last callback happened are this
         # many frames
-        frames_since = int(callback_time.timediff(t) * config.sr)
+        frames_since = round(callback_time.timediff(t) * config.sr)
         indata_at = (
             sum(lengths[:-1])
             + frames_since
-            + int(callback_time.input_delay * config.sr)
+            + round(callback_time.input_delay * config.sr)
         )
         n = indata_at - self.indata_start
         if self.loop_length is not None:
@@ -336,6 +336,10 @@ class Recording:
             0,
             remove_pop=False,
         )
+        # We need to add the starting frame (in case we start this audio late)
+        # as well as subtract the audio delay we added when we started
+        # recording
+        n += audio.pos_start - round(callback_time.output_delay * config.sr)
         if n > audio.n_loop_iter * self.loop_length:
             n = n % self.loop_length
         audio.current_frame = n

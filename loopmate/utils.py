@@ -1,17 +1,16 @@
 from dataclasses import dataclass
 
 import numpy as np
+import soundfile as sf
 from scipy import signal as sig
 
 
-def resample(x, sr_source, sr_target):
-    """Resample signal to target samplerat
+def resample(x: np.ndarray, sr_source: int, sr_target: int):
+    """Resample signal to target samplerate
 
-    :param x:
-    :param sr_source:
-    :param sr_target:
-    :returns:
-
+    :param x: audio file to resample of shape (n_samples, channels)
+    :param sr_source: samplerate of x
+    :param sr_target: target samplerate
     """
     c = sr_target / sr_source
     n_target = int(np.round(len(x) * c))

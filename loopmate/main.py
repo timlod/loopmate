@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import termios
+import time
 import tty
 
 import numpy as np
@@ -20,6 +21,7 @@ from scipy import signal as sig
 from loopmate import config
 from loopmate.actions import Effect
 from loopmate.loop import Audio, Loop
+from loopmate.utils import Metre
 
 # TODO: implement fitting effects as actions
 
@@ -57,18 +59,30 @@ class CharIn:
 
 
 async def main():
-    # print(sd.query_devices())
+    print(sd.query_devices())
     piano, _ = sf.read("../data/piano.wav", dtype=np.float32)
     tom, _ = sf.read("../data/tom.wav", dtype=np.float32)
-    tom = tom[:, None]
+    clave, _ = sf.read("../data/clave.wav", dtype=np.float32)
+    tom = 0.5 * tom[: len(tom) // 2, None]
+    print(clave.shape)
+    clave = np.concatenate(
+        (
+            1 * clave[:, None],
+            np.zeros((config.sr - len(clave), 1), dtype=np.float32),
+        )
+    )
     piano = piano[: len(tom) * 2]
     # sweep = 0.2 * chirp(200, 1000, 2, method="linear", sr=sr)
     # loop = Loop(sweep[:, None])
-    loop = Loop(Audio(piano))
+    # loop = Loop(Audio(piano))
     # loop.add_track(tom)
-    # loop = Loop(Audio(tom))
+    loop = Loop(Audio(clave, remove_pop=False))
     # loop = Loop()
     print(loop)
+
+    ps = pedalboard.PitchShift(semitones=-6)
+    ds = pedalboard.Distortion(drive_db=20)
+    delay = pedalboard.Delay(0.8, 0.1, 0.3)
 
     try:
         prompt = CharIn()
@@ -92,20 +106,39 @@ async def main():
                     loop.actions.mute.cancel()
             if c == "d":
                 loop.audios.pop()
+                if len(loop.audios) == 0:
+                    loop.anchor = None
             if c == "o":
                 loop.stop()
             if c == "r":
                 await loop.record()
-            if c == "a":
-                with sd.OutputStream() as s:
-                    s.write(np.hstack([tom, tom]))
             if c == "b":
-                loop.gain = 1.0
+                audio = loop.audios[-1]
+                peak = audio.audio.max()
+                audio.audio = peak * ps(audio.audio, config.sr)
+            if c == "e":
+                c = await prompt()
+                audio = loop.audios[-1]
+                if c == "d":
+                    audio.audio = ds(audio.audio, config.sr)
+                if c == "n":
+                    ps.semitones = 6
+                    audio.audio = ps(audio.audio, config.sr)
+                if c == "p":
+                    ps.semitones = -6
+                    audio.audio = ps(audio.audio, config.sr)
+                if c == "r":
+                    audio.reset_audio()
+                if c == "t":
+                    audio.audio = delay(audio.audio, config.sr)
             if c == "c":
-                # schedule stop task at end of loop
-                loop.save_times()
-                pass
-                # loop.tasks.put(loop.stop_next)
+                m = Metre(90, 4, 4)
+
+                loop.add_track(Audio(m.get_metronome(config.sr)[:, None]))
+            # Save
+            if c == "x":
+                audio = loop.audios[-1]
+                sf.write(f"{time.strftime('%s')}.wav", audio, config.sr)
             if c == "q":
                 break
     except (sd.CallbackStop, sd.CallbackAbort):

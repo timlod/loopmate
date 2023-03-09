@@ -22,6 +22,7 @@ class Action:
 
     _: KW_ONLY
     # If True, loop this action instead of consuming it
+    countdown: int = 0
     loop: bool = False
     priority: int = 3
     # Consuming this action will 'spawn'/queue this new action
@@ -41,6 +42,9 @@ class Action:
         if self.current_sample >= self.n:
             if self.loop:
                 self.current_sample = 0
+            elif self.countdown > 0:
+                self.current_sample = 0
+                self.countdown -= 1
             else:
                 self.consumed = True
 

@@ -86,6 +86,60 @@ class Action:
         self.priority = priority
 
 
+@dataclass
+class Trigger:
+    when: int
+    loop_length: int
+
+    _: KW_ONLY
+    # If True, loop this action instead of consuming it
+    countdown: int = 0
+    # If loop is True, we want to spawn every time
+    # else, we want to spawn after countdown and consume
+    loop: bool = False
+    priority: int = 1
+    # As opposed to Action, which spawns when consumed, this class spawns when
+    # triggered (such that triggered actions happen this buffer), and does
+    # nothing when consumed
+    spawn: Action | None = None
+
+    def __post_init__(self):
+        self.consumed = False
+
+    def run(self):
+        if self.loop:
+            pass
+        elif self.countdown > 0:
+            self.countdown -= 1
+        else:
+            self.cancel()
+
+    def __lt__(self, other):
+        return self.priority < other.priority
+
+    def trigger(self, current_frame, next_frame):
+        if current_frame > next_frame:
+            if (self.when >= current_frame) or (self.when < next_frame):
+                return True
+            else:
+                return False
+        else:
+            return current_frame <= self.when < next_frame
+
+    def index(self, current_frame, next_frame):
+        if current_frame > next_frame:
+            return self.loop_length - current_frame + self.when
+        else:
+            return self.when - current_frame
+
+    def cancel(self):
+        self.loop = False
+        self.countdown = 0
+        self.consumed = True
+
+    def set_priority(self, priority):
+        self.priority = priority
+
 class CrossFade:
     def __init__(self, n=None, left_right=True):
         """Initialize blending operation across multiple audio buffers.

@@ -19,6 +19,7 @@ RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]
 class Action:
     start: int
     end: int
+    loop_length: int
 
     _: KW_ONLY
     # If True, loop this action instead of consuming it
@@ -29,11 +30,32 @@ class Action:
     spawn: Action | None = None
 
     def __post_init__(self):
-        self.n = self.end - self.start
+        if self.end > self.start:
+            self.n = self.end - self.start
+        else:
+            self.n = self.start + self.loop_length - self.end
+
         # Current sample !inside action between start and end
         # don't mix up with current_frame!
         self.current_sample = 0
         self.consumed = False
+
+    def trigger(self, current_frame, next_frame):
+        if self.end > self.start:
+            return self.start <= current_frame <= self.end
+        else:
+            # Include case where action lasts all the time, i.e. from 0 to 0
+            return (current_frame >= self.end) and (
+                current_frame <= self.start
+            )
+
+    def index(self, n, current_frame, next_frame):
+        offset_a = max(0, self.start - current_frame)
+        # If data wraps around we need to index 'past the end'
+        offset_b = self.end - current_frame
+        if next_frame < current_frame:
+            offset_b += next_frame
+        return offset_a, offset_b
 
     def run(self, data):
         self.do(data)
@@ -57,6 +79,8 @@ class Action:
     def cancel(self):
         self.current_sample = self.n
         self.loop = False
+        self.countdown = 0
+        self.consumed = True
 
     def set_priority(self, priority):
         self.priority = priority

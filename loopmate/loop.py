@@ -271,11 +271,10 @@ class Recording:
             self.loop_length = loop_length
             if reference_frame > loop_length:
                 reference_frame -= loop_length
-            # self.start_frame, move = start_frame, 0
             self.start_frame, move = self.quantize(reference_frame)
-            # print(
-            #     f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
-            # )
+            print(
+                f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
+            )
             indata_at += move
         else:
             self.start_frame = 0

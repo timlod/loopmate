@@ -49,7 +49,9 @@ class Action:
                 current_frame <= self.start
             )
 
-    def index(self, n, current_frame, next_frame):
+    def index(self, current_frame, next_frame):
+        # Note that this only gets triggered if start is within or after
+        # the current frame, that's why we can use max
         offset_a = max(0, self.start - current_frame)
         # If data wraps around we need to index 'past the end'
         offset_b = self.end - current_frame
@@ -258,42 +260,41 @@ class Stop(Action):
 @dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
-    loop: Loop | Audio
     max: int = 20
     actions: list = field(default_factory=deque)
     active: asyncio.PriorityQueue = field(
         default_factory=asyncio.PriorityQueue
     )
-    mute: None | Action = None
+    plans: asyncio.PriorityQueue = field(default_factory=asyncio.PriorityQueue)
 
-    def run(self, outdata, current_frame):
+    def run(self, outdata, current_frame, next_frame):
         """Run all actions (to be called once every callback)
 
         :param outdata: outdata as passed into sd callback (will fill portaudio
             buffer)
         :param current_frame: first sample index of outdata in full audio
         """
-
-        if self.mute is not None:
-            self.mute.run(outdata)
-            if self.mute.consumed:
-                self.mute = None
-
         # Activate actions (puts them in active queue)
         for action in self.actions:
-            if action.start <= current_frame <= action.end:
+            if action.trigger(current_frame, next_frame):
                 self.active.put_nowait(action)
-                print(f"putting {action}, {current_frame}")
 
-        for i in range(self.active.qsize()):
+        while not self.active.empty():
             action = self.active.get_nowait()
-            # Note that this only gets triggered if start is within or after
-            # the current frame, that's why we can use max
-            offset_a = max(0, action.start - current_frame)
-            # Indexing past the end of outdata will just return the full array
-            offset_b = action.end - current_frame
+            if isinstance(action, Trigger):
+                print(f"Trigger {action}")
+                action.run(self)
+                if action.consumed:
+                    print(self.plans)
+                    if not action.loop:
+                        self.actions.remove(action)
+                continue
+
+            # Actions
+            offset_a, offset_b = action.index(current_frame, next_frame)
             action.run(outdata[offset_a:offset_b])
             if action.consumed:
+                print(f"consumed {action}")
                 self.actions.remove(action)
                 if isinstance(action, Stop):
                     outdata[offset_b:] = 0.0
@@ -301,8 +302,8 @@ class Actions:
                         try:
                             self.active.get(False)
                         except Exception:
-                            continue
+                            break
                     raise sd.CallbackStop()
                 if action.spawn is not None:
-                    print(f"Putting {action.spawn}")
+                    print(f"Spawning {action.spawn}")
                     self.actions.append(action.spawn)

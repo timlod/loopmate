@@ -22,8 +22,8 @@ class Action:
     loop_length: int
 
     _: KW_ONLY
-    # If True, loop this action instead of consuming it
     countdown: int = 0
+    # If True, loop this action instead of consuming it
     loop: bool = False
     priority: int = 3
     # Consuming this action will 'spawn'/queue this new action
@@ -101,20 +101,27 @@ class Trigger:
     loop: bool = False
     priority: int = 1
     # As opposed to Action, which spawns when consumed, this class spawns when
-    # triggered (such that triggered actions happen this buffer), and does
-    # nothing when consumed
+    # triggered (such that triggered actions happen this buffer). If loop is
+    # True, consumption and countdown are reset after triggering
     spawn: Action | None = None
 
     def __post_init__(self):
         self.consumed = False
+        self.i = self.countdown
 
-    def run(self):
-        if self.loop:
-            pass
-        elif self.countdown > 0:
-            self.countdown -= 1
+    def run(self, actions):
+        if self.i > 0:
+            self.i -= 1
+            self.consumed = False
         else:
-            self.cancel()
+            self.do(actions)
+            if self.loop:
+                self.i = self.countdown
+            else:
+                self.consumed = True
+
+    def do(self, actions):
+        pass
 
     def __lt__(self, other):
         return self.priority < other.priority

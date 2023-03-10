@@ -149,6 +149,29 @@ class Trigger:
     def set_priority(self, priority):
         self.priority = priority
 
+
+class MuteTrigger(Trigger):
+    def __init__(self, when, loop_length, **kwargs):
+        super().__init__(when, loop_length, **kwargs)
+
+    def do(self, actions):
+        if len(actions.actions) > 0 and isinstance(actions.actions[0], Mute):
+            actions.actions[0].cancel()
+        else:
+            mute = Mute(self.when, self.loop_length)
+            actions.actions.appendleft(mute)
+            actions.active.put_nowait(mute)
+
+
+class RecordTrigger(Trigger):
+    def __init__(self, when, loop_length, **kwargs):
+        super().__init__(when, loop_length, **kwargs)
+
+    def do(self, actions):
+        print("putting into plans")
+        actions.plans.put_nowait(self)
+
+
 class CrossFade:
     def __init__(self, n=None, left_right=True):
         """Initialize blending operation across multiple audio buffers.
@@ -204,7 +227,7 @@ class Effect(Action):
             ndarray of the same size as outdata
         :param priority: indicate priority at which to queue this action
         """
-        super().__init__(0, n, loop=True)
+        super().__init__(0, n, n, loop=True)
         self.blend = CrossFade()
         self.current_sample = start
         self.transformation = transformation
@@ -230,15 +253,20 @@ class Effect(Action):
         self.loop = False
 
 
+class Mute(Effect):
+    def __init__(self, start: int, n: int):
+        super().__init__(start, n, lambda x: x * 0.0, priority=0)
+
+
 class Start(Action):
-    def __init__(self, start: int, priority: int = 100):
+    def __init__(self, start: int, loop_length: int, priority: int = 100):
         """Initialize effect which will fade in at a certain frame.
 
         :param start: start effect at this frame (inside looped audio)
         :param priority: indicate priority at which to queue this action
         """
         blend = CrossFade(left_right=False)
-        super().__init__(start, start + blend.n, loop=False)
+        super().__init__(start, start + blend.n, loop_length, loop=False)
         self.blend = blend
 
     def do(self, data):

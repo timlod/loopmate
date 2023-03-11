@@ -318,12 +318,14 @@ class Actions:
         while not self.active.empty():
             action = self.active.get_nowait()
             if isinstance(action, Trigger):
-                print(f"Trigger {action}")
+                print(f"Trigger {action}, {current_frame}")
                 action.run(self)
                 if action.consumed:
                     print(self.plans)
                     if not action.loop:
                         self.actions.remove(action)
+                    if action.spawn is not None:
+                        self.actions.append(action.spawn)
                 continue
 
             # Actions

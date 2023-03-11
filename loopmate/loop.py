@@ -188,22 +188,24 @@ class Loop:
 
         return callback
 
-    async def start(self):
+    def start(self):
         self.stream.stop()
         # self.current_frame = 0
         if self.anchor is not None:
-            self.actions.actions.append(Start(self.anchor.current_frame))
+            self.actions.actions.append(
+                Start(self.anchor.current_frame, self.anchor.loop_length)
+            )
         self.stream.start()
-        sd.sleep(200)
 
     def stop(self):
         if self.anchor is not None:
             print(f"Stopping stream action. {self.anchor.current_frame}")
             self.actions.actions.append(Stop(self.anchor.current_frame))
 
-    async def record(self):
+    def record(self):
         t = self.stream.time
         if self.recording is None:
+            print("REC START")
             self.recording = Recording(
                 list(self.recent_audio),
                 self.callback_time,
@@ -211,17 +213,19 @@ class Loop:
                 self.anchor.loop_length if self.anchor is not None else None,
             )
         else:
+            print("REC FINISH")
             audio, remaining = self.recording.finish(t, self.callback_time)
             self.add_track(audio)
             wait_for = (remaining + config.latency) / config.sr
             if remaining > 0:
-                await asyncio.sleep(wait_for * 2)
+                # await asyncio.sleep(wait_for * 2)
+                sd.sleep(int(wait_for * 2 * 1000))
                 audio.audio[-remaining:] = np.concatenate(
                     self.recording.recordings
                 )[:remaining]
             self.recording.antipop(audio)
             self.recording = None
-        print(self.stream.cpu_load)
+        print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
 
 class Recording:

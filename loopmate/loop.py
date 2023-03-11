@@ -71,22 +71,21 @@ class Audio:
         """
         leftover = self.n - self.current_frame
         chunksize = min(leftover, frames)
+        current_frame = self.current_frame
 
         if leftover <= frames:
             out = self.audio[
                 np.r_[
-                    self.current_frame : self.current_frame + chunksize,
+                    current_frame : current_frame + chunksize,
                     : frames - leftover,
                 ]
             ]
             self.current_frame = frames - leftover
         else:
-            out = self.audio[
-                self.current_frame : self.current_frame + chunksize
-            ]
+            out = self.audio[current_frame : current_frame + chunksize]
             self.current_frame += frames
 
-        self.actions.run(out, self.current_frame)
+        self.actions.run(out, current_frame, self.current_frame)
         return out
 
     def reset_audio(self):
@@ -169,7 +168,9 @@ class Loop:
                 outdata[:] += a
 
             if self.anchor is not None:
-                self.actions.run(outdata, current_frame)
+                self.actions.run(
+                    outdata, current_frame, self.anchor.current_frame
+                )
 
             # Align current frame for newly put audio
             # TODO: only add to new_audios when appropriate - done?

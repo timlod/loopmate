@@ -88,90 +88,6 @@ class Action:
         self.priority = priority
 
 
-@dataclass
-class Trigger:
-    when: int
-    loop_length: int
-
-    _: KW_ONLY
-    # If True, loop this action instead of consuming it
-    countdown: int = 0
-    # If loop is True, we want to spawn every time
-    # else, we want to spawn after countdown and consume
-    loop: bool = False
-    priority: int = 1
-    # As opposed to Action, which spawns when consumed, this class spawns when
-    # triggered (such that triggered actions happen this buffer). If loop is
-    # True, consumption and countdown are reset after triggering
-    spawn: Action | None = None
-
-    def __post_init__(self):
-        self.consumed = False
-        self.i = self.countdown
-
-    def run(self, actions):
-        if self.i > 0:
-            self.i -= 1
-            self.consumed = False
-        else:
-            self.do(actions)
-            if self.loop:
-                self.i = self.countdown
-            else:
-                self.consumed = True
-
-    def do(self, actions):
-        pass
-
-    def __lt__(self, other):
-        return self.priority < other.priority
-
-    def trigger(self, current_frame, next_frame):
-        if current_frame > next_frame:
-            if (self.when >= current_frame) or (self.when < next_frame):
-                return True
-            else:
-                return False
-        else:
-            return current_frame <= self.when < next_frame
-
-    def index(self, current_frame, next_frame):
-        if current_frame > next_frame:
-            return self.loop_length - current_frame + self.when
-        else:
-            return self.when - current_frame
-
-    def cancel(self):
-        self.loop = False
-        self.countdown = 0
-        self.consumed = True
-
-    def set_priority(self, priority):
-        self.priority = priority
-
-
-class MuteTrigger(Trigger):
-    def __init__(self, when, loop_length, **kwargs):
-        super().__init__(when, loop_length, **kwargs)
-
-    def do(self, actions):
-        if len(actions.actions) > 0 and isinstance(actions.actions[0], Mute):
-            actions.actions[0].cancel()
-        else:
-            mute = Mute(self.when, self.loop_length)
-            actions.actions.appendleft(mute)
-            actions.active.put_nowait(mute)
-
-
-class RecordTrigger(Trigger):
-    def __init__(self, when, loop_length, **kwargs):
-        super().__init__(when, loop_length, **kwargs)
-
-    def do(self, actions):
-        print("putting into plans")
-        actions.plans.put_nowait(self)
-
-
 class CrossFade:
     def __init__(self, n=None, left_right=True):
         """Initialize blending operation across multiple audio buffers.
@@ -293,14 +209,98 @@ class Stop(Action):
 
 
 @dataclass
+class Trigger:
+    when: int
+    loop_length: int
+
+    _: KW_ONLY
+    # If True, loop this action instead of consuming it
+    countdown: int = 0
+    # If loop is True, we want to spawn every time
+    # else, we want to spawn after countdown and consume
+    loop: bool = False
+    priority: int = 1
+    # As opposed to Action, which spawns when consumed, this class spawns when
+    # triggered (such that triggered actions happen this buffer). If loop is
+    # True, consumption and countdown are reset after triggering
+    spawn: Action | None = None
+
+    def __post_init__(self):
+        self.consumed = False
+        self.i = self.countdown
+
+    def run(self, actions):
+        if self.i > 0:
+            self.i -= 1
+            self.consumed = False
+        else:
+            self.do(actions)
+            if self.loop:
+                self.i = self.countdown
+            else:
+                self.consumed = True
+
+    def do(self, actions):
+        pass
+
+    def __lt__(self, other):
+        return self.priority < other.priority
+
+    def trigger(self, current_frame, next_frame):
+        if current_frame > next_frame:
+            if (self.when >= current_frame) or (self.when < next_frame):
+                return True
+            else:
+                return False
+        else:
+            return current_frame <= self.when < next_frame
+
+    def index(self, current_frame, next_frame):
+        if current_frame > next_frame:
+            return self.loop_length - current_frame + self.when
+        else:
+            return self.when - current_frame
+
+    def cancel(self):
+        self.loop = False
+        self.countdown = 0
+        self.consumed = True
+
+    def set_priority(self, priority):
+        self.priority = priority
+
+
+class MuteTrigger(Trigger):
+    def __init__(self, when, loop_length, **kwargs):
+        super().__init__(when, loop_length, **kwargs)
+
+    def do(self, actions):
+        if len(actions.actions) > 0 and isinstance(actions.actions[0], Mute):
+            actions.actions[0].cancel()
+        else:
+            mute = Mute(self.when, self.loop_length)
+            actions.actions.appendleft(mute)
+            actions.active.put_nowait(mute)
+
+
+class RecordTrigger(Trigger):
+    def __init__(self, when, loop_length, **kwargs):
+        super().__init__(when, loop_length, **kwargs)
+
+    def do(self, actions):
+        print("putting into plans")
+        # loop = asyncio.get_running_loop()
+        actions.aioloop.call_soon_threadsafe(actions.plans.put_nowait(self))
+        # actions.plans.put_nowait(self)
+
+
+@dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
     aioloop: Any
     max: int = 20
     actions: list = field(default_factory=deque)
-    active: asyncio.PriorityQueue = field(
-        default_factory=asyncio.PriorityQueue
-    )
+    active: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
     plans: asyncio.PriorityQueue = field(default_factory=asyncio.PriorityQueue)
 
     def run(self, outdata, current_frame, next_frame):

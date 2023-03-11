@@ -97,7 +97,7 @@ class Audio:
 
 
 class Loop:
-    def __init__(self, anchor: Audio | None = None):
+    def __init__(self, anchor: Audio | None = None, aioloop=None):
         self.audios = []
         self.new_audios = queue.Queue()
         self.anchor = anchor
@@ -112,7 +112,7 @@ class Loop:
         self.recording = None
 
         # Global actions applied to fully mixed audio
-        self.actions = Actions(self)
+        self.actions = Actions(aioloop)
 
         self.stream = sd.Stream(
             samplerate=config.sr,

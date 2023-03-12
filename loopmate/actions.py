@@ -288,10 +288,9 @@ class RecordTrigger(Trigger):
         super().__init__(when, loop_length, **kwargs)
 
     def do(self, actions):
-        print("putting into plans")
-        # loop = asyncio.get_running_loop()
-        actions.aioloop.call_soon_threadsafe(actions.plans.put_nowait(self))
-        # actions.plans.put_nowait(self)
+        actions.aioloop.call_soon_threadsafe(
+            lambda: actions.plans.put_nowait(self)
+        )
 
 
 @dataclass

@@ -19,5 +19,8 @@ blend_length = 0.05
 quantize_ms = 0.2
 # Output delay from speaker sound travel
 air_delay = 0.0
+# Maximum recording length (in seconds). Will constantly keep a buffer of sr *
+# this many samples to query backwards from.
+max_recording_length = 60
 
-blend_frames = int(sr * blend_length)
+blend_frames = round(sr * blend_length)

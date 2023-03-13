@@ -70,3 +70,59 @@ class StreamTime:
 
     def __repr__(self):
         return f"StreamTime({self.current}, {self.input}, {self.output}, {self.frame})"
+
+
+class CircularArray:
+    """
+    Simple implementation of an array which can be indexed and written to in a
+    wrap-around fashion.
+    """
+
+    def __init__(self, N, channels=2):
+        self.data = np.zeros((N, channels), dtype=np.float32)
+        self.N = N
+        self.i = 0
+
+    def __getitem__(self, n: int, out=None):
+        """Return the last n samples.  Note: returns a view if we don't need to
+        wrap around, and a copy otherwise (unless we specify the output array)!
+
+        :param n: number of samples to return.  Needs to be < N
+        :param out: array to place the last n samples into.  Can be used to
+            re-use an array of loop_length for sample storage to avoid extra
+            memory copies.
+        """
+        assert n <= self.N, f"Can't query more than N({self.N}) samples!"
+        l_i = self.i - n
+        if l_i < 0:
+            return np.concatenate(
+                (self.data[l_i:], self.data[: self.i]), out=out
+            )
+        else:
+            if out is not None:
+                out[:] = self.data[l_i : self.i]
+                return out
+            else:
+                return self.data[l_i : self.i]
+
+    def write(self, arr):
+        """Write to this circular array.
+
+        :param arr: array to write
+        """
+        n = len(arr)
+        arr_i = 0
+
+        # right index
+        r_i = self.i + n
+        # Wrap around if we cross the boundary in data
+        if r_i > self.N:
+            arr_i = self.N - self.i
+            self.data[self.i :] = arr[:arr_i]
+            r_i = r_i % self.N
+            self.i = 0
+        self.data[self.i : r_i] = arr[arr_i:]
+        self.i = r_i
+
+    def __repr__(self):
+        return self.data.__repr__() + f"\ni: {self.i}"

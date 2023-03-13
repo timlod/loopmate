@@ -256,12 +256,9 @@ class Recording:
                 + round(callback_time.output_delay * config.sr)
             )
 
-        # This is the actual recording array index of reference_frame,
-        # accounting for the delay from playing until getting input. Should
-        # this perhaps just be input delay? at least when we're not recording
-        # back the track - the output delay probably has to be accounted for in
-        # the output, as in, playing it that many frames earlier
-
+        # This is the actual recording array index of reference_frame at time
+        # of press, accounting for the input delay (time it takes a sample
+        # recorded to show up in the ADC)
         indata_at = (
             sum(lengths[:-1])
             + frames_since
@@ -340,7 +337,7 @@ class Recording:
         # We need to add the starting frame (in case we start this audio late)
         # as well as subtract the audio delay we added when we started
         # recording
-        n += audio.pos_start - round(callback_time.output_delay * config.sr)
+        n += self.start_frame - round(callback_time.output_delay * config.sr)
         if n > audio.n_loop_iter * self.loop_length:
             n = n % self.loop_length
         audio.current_frame = n

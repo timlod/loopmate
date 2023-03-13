@@ -92,6 +92,8 @@ class CircularArray:
         :param out: array to place the last n samples into.  Can be used to
             re-use an array of loop_length for sample storage to avoid extra
             memory copies.
+        # Use to compute differences in samples between two points in time
+        self.counter = 0
         """
         assert n <= self.N, f"Can't query more than N({self.N}) samples!"
         l_i = self.i - n
@@ -124,6 +126,7 @@ class CircularArray:
             self.i = 0
         self.data[self.i : r_i] = arr[arr_i:]
         self.i = r_i
+        self.counter += n
 
     def __repr__(self):
         return self.data.__repr__() + f"\ni: {self.i}"

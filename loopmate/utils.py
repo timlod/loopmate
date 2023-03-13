@@ -83,30 +83,53 @@ class CircularArray:
         self.data = np.zeros((N, channels), dtype=np.float32)
         self.N = N
         self.i = 0
-
-    def __getitem__(self, n: int, out=None):
-        """Return the last n samples.  Note: returns a view if we don't need to
-        wrap around, and a copy otherwise (unless we specify the output array)!
-
-        :param n: number of samples to return.  Needs to be < N
-        :param out: array to place the last n samples into.  Can be used to
-            re-use an array of loop_length for sample storage to avoid extra
-            memory copies.
         # Use to compute differences in samples between two points in time
         self.counter = 0
+
+    def query(self, i: slice, out=None):
+        """Return n samples.  Note: returns a copy of the requested data
+        (unless we specify the output array, in which case it writes a copy
+        into it)!
+
+        :param i: slice of samples to return.  Needs to satisfy -self.N < start
+                  < stop <= 0.  Ignores slice step.
+        :param out: array to place the samples into.  Can be used to re-use an
+            array of loop_length for sample storage to avoid extra memory
+            copies.
         """
-        assert n <= self.N, f"Can't query more than N({self.N}) samples!"
-        l_i = self.i - n
+        assert isinstance(i, slice), f"Use slice for indexing! (Got {i})"
+        start, stop = i.start or 0, i.stop or 0
+        assert (
+            -self.N < start < stop <= 0
+        ), f"Can only slice at most N ({self.N}) items backward on!"
+        l_i = self.i + start
+        r_i = self.i + stop
         if l_i < 0:
-            return np.concatenate(
-                (self.data[l_i:], self.data[: self.i]), out=out
-            )
+            return np.concatenate((self.data[l_i:], self.data[:r_i]), out=out)
         else:
             if out is not None:
-                out[:] = self.data[l_i : self.i]
+                out[:] = self.data[l_i:r_i]
                 return out
             else:
-                return self.data[l_i : self.i]
+                return self.data[l_i:r_i].copy()
+
+    def __getitem__(self, i):
+        """Get samples from this array. This returns a copy.
+
+        :param i: slice satisfying -self.N < start < stop <= 0. Can't use step.
+        """
+        return self.query(i)
+
+    def index_offset(self, offset):
+        if (i := self.i + offset) > self.N:
+            return i % self.N
+        elif i < 0:
+            return self.N + i
+        else:
+            return i
+
+    def frames_since(self, c0):
+        return self.counter - c0
 
     def write(self, arr):
         """Write to this circular array.

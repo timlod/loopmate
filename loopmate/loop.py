@@ -373,9 +373,9 @@ class Recording:
         :param lenience: quantize if within this many seconds from the loop
             boundary
 
-            For example, for sr=48000, the lenience (indata_at 200ms) is 9600 samples.
-            If the end marker is indata_at between 38400 and 57600, it will instead be
-            set to 48000, the full loop.
+            For example, for sr=48000, the lenience (indata_at 200ms) is 9600
+            samples.  If the end marker is indata_at between 38400 and 57600,
+            it will instead be set to 48000, the full loop.
         """
         loop_n, frame_rem = np.divmod(frame, self.loop_length)
         lenience = config.sr * lenience

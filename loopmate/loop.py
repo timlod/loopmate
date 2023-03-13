@@ -10,7 +10,7 @@ from scipy import signal as sig
 
 from loopmate import config
 from loopmate.actions import Actions, Start, Stop
-from loopmate.utils import StreamTime
+from loopmate.utils import CircularArray, StreamTime
 
 blend_windowsize = round(config.blend_length * config.sr)
 RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]
@@ -109,6 +109,9 @@ class Loop:
         self.recent_audio = queue.deque(
             maxlen=int(np.ceil(config.sr / config.blocksize))
         )
+        self.ra = CircularArray(
+            config.sr * config.max_recording_length, config.channels
+        )
         self.recording = None
 
         # Global actions applied to fully mixed audio
@@ -154,11 +157,12 @@ class Loop:
 
             # These times/frame refer to the frame that is processed in this
             # callback
-            self.callback_time = StreamTime(time, current_frame)
+            self.callback_time = StreamTime(time, current_frame, frames)
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
             self.recent_audio.append(indata)
+            self.ra.write(indata)
             if self.recording is not None:
                 self.recording.append(indata)
 

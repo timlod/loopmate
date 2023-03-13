@@ -39,8 +39,9 @@ class Metre:
 
 
 class StreamTime:
-    def __init__(self, time, frame):
+    def __init__(self, time, frame, n_frames):
         self.frame = frame
+        self.n_frames = n_frames
         if isinstance(time, list):
             self.current = time[0]
             self.input = time[1]

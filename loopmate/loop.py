@@ -27,7 +27,6 @@ class Audio:
     loop_length: int | None = None
     pos_start: int = 0
     current_frame: int = 0
-    remove_pop: bool = True
 
     def __post_init__(self):
         self.n, self.channels = self.audio.shape
@@ -55,12 +54,6 @@ class Audio:
         )
         self.n += right
         self._audio = self.audio.copy()
-
-        # Remove pop at loop edge
-        if self.remove_pop:
-            n_pw = len(POP_WINDOW) // 2
-            self.audio[:n_pw] *= POP_WINDOW[:n_pw]
-            self.audio[-n_pw:] *= POP_WINDOW[-n_pw:]
 
         self.actions = Actions(self)
 

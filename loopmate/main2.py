@@ -10,7 +10,12 @@ import sounddevice as sd
 import soundfile as sf
 
 from loopmate import config
-from loopmate.actions import Mute, MuteTrigger, RecordTrigger
+from loopmate.actions import (
+    BackCaptureTrigger,
+    Mute,
+    MuteTrigger,
+    RecordTrigger,
+)
 from loopmate.loop import Audio, Loop
 
 
@@ -67,6 +72,10 @@ class MidiQueue:
                 self.loop.actions.actions.append(
                     MuteTrigger(when, n, loop=False)
                 )
+            elif message.note == 48:
+                self.loop.backcapture(1)
+            elif message.note == 43:
+                self.loop.measure_air_delay()
 
 
 async def main():
@@ -82,7 +91,7 @@ async def main():
     )
     # loop = Loop(Audio(piano))
     aioloop = asyncio.get_event_loop()
-    loop = Loop(Audio(clave, remove_pop=False), aioloop)
+    loop = Loop(Audio(clave), aioloop)
     # loop = Loop()
     print(loop)
 
@@ -106,6 +115,9 @@ async def main():
             if isinstance(trigger, RecordTrigger):
                 print(f"\rgot record in main")
                 loop.record()
+                continue
+            elif isinstance(trigger, BackCaptureTrigger):
+                loop.backcapture(trigger.n_loops)
                 continue
     except (sd.CallbackStop, sd.CallbackAbort):
         print("Stopped")

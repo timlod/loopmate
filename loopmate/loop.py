@@ -213,6 +213,21 @@ class Loop:
             self.recording = None
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
+    def backcapture(self, n):
+        print(f"Backcapture {n=}!")
+        t = self.stream.time
+        recording = Recording(
+            self.recent_audio,
+            self.callback_time,
+            self.stream.time,
+            self.anchor.loop_length if self.anchor is not None else None,
+            lenience=self.anchor.loop_length // 2,
+        )
+        recording.rec_start -= recording.loop_length * n
+        audio = recording.finish(t, self.callback_time)
+        self.add_track(audio)
+        print(f"Load: {100 * self.stream.cpu_load:.2f}%")
+
 
 class Recording:
     def __init__(
@@ -221,7 +236,9 @@ class Recording:
         callback_time: StreamTime,
         start_time: float,
         loop_length: int | None = None,
+        lenience: int = None,
     ):
+        self.lenience = lenience
         # Between pressing and the time the last callback happened are this
         # many frames
         frames_since = round(callback_time.timediff(start_time) * config.sr)
@@ -251,7 +268,9 @@ class Recording:
             self.loop_length = loop_length
             if reference_frame > loop_length:
                 reference_frame -= loop_length
-            self.start_frame, move = self.quantize(reference_frame)
+            self.start_frame, move = self.quantize(
+                reference_frame, lenience=lenience
+            )
             print(
                 f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
             )
@@ -275,7 +294,9 @@ class Recording:
         n = self.rec_stop - self.rec_start
         if self.loop_length is not None:
             reference_frame = self.start_frame + n
-            self.end_frame, move = self.quantize(reference_frame, False)
+            self.end_frame, move = self.quantize(
+                reference_frame, False, self.lenience
+            )
             print(f"\n\rMove {move} to {self.end_frame}")
             self.rec_stop += move
             n += move
@@ -286,7 +307,7 @@ class Recording:
             return None
         if self.rec_stop > self.rec.counter:
             wait_for = (
-                self.rec_stop - self.rec.counter + 2 * config.blocksize
+                self.rec_stop - self.rec.counter + 3 * config.blocksize
             ) / config.sr
             print(f"Missing {self.rec_stop - self.rec.counter} frames.")
             print(f"Waiting {wait_for}s.")
@@ -326,7 +347,9 @@ class Recording:
             recording[:n_pw] *= POP_WINDOW[:n_pw]
             recording[-n_pw:] *= POP_WINDOW[-n_pw:]
 
-    def quantize(self, frame, start=True, lenience=0.2) -> (int, int):
+    def quantize(
+        self, frame, start=True, lenience=config.sr * 0.2
+    ) -> (int, int):
         """Quantize start or end recording marker to the loop boundary if
         within some interval from them.  Also returns difference between
         original frame and quantized frame.
@@ -341,7 +364,6 @@ class Recording:
             it will instead be set to 48000, the full loop.
         """
         loop_n, frame_rem = np.divmod(frame, self.loop_length)
-        lenience = config.sr * lenience
         if start:
             if frame < lenience:
                 return 0, -frame

@@ -293,6 +293,17 @@ class RecordTrigger(Trigger):
         )
 
 
+class BackCaptureTrigger(Trigger):
+    def __init__(self, when, loop_length, n_loops=1, **kwargs):
+        super().__init__(when, loop_length, **kwargs)
+        self.n_loops = n_loops
+
+    def do(self, actions):
+        actions.aioloop.call_soon_threadsafe(
+            lambda: actions.plans.put_nowait(self)
+        )
+
+
 @dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback

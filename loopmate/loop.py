@@ -233,6 +233,26 @@ class Loop:
         self.add_track(audio)
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
+    def measure_air_delay(self):
+        ll = 0 if self.anchor is None else self.anchor.loop_length
+        self.actions.append(Sample(CLAVE, ll, 0.5))
+        at_sample = self.recent_audio.counter
+        wait_for = 200 - round(self.callback_time.output_delay * 1000)
+        sd.sleep(wait_for)
+        after = self.recent_audio.counter
+        recent_audio = self.recent_audio[
+            -(round(wait_for / 1000 * config.sr)) :
+        ]
+        i = recent_audio.sum(-1)[::-1].argmax()
+        after -= i
+        delay = (
+            after
+            + round(self.callback_time.output_delay * config.sr)
+            - at_sample
+            - round(self.callback_time.input_delay * config.sr)
+        )
+        print(f"{delay=}")
+
 
 class Recording:
     def __init__(

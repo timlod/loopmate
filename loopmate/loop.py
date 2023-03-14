@@ -26,6 +26,8 @@ class Audio:
     loop_length: int | None = None
     pos_start: int = 0
     current_frame: int = 0
+    n: int = field(init=False)
+    channels: int = field(init=False)
 
     def __post_init__(self):
         self.n, self.channels = self.audio.shape

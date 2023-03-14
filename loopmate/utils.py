@@ -104,7 +104,7 @@ class CircularArray:
         ), f"Can only slice at most N ({self.N}) items backward on!"
         l_i = self.i + start
         r_i = self.i + stop
-        if l_i < 0:
+        if l_i < 0 <= r_i:
             return np.concatenate((self.data[l_i:], self.data[:r_i]), out=out)
         else:
             if out is not None:

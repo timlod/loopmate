@@ -241,7 +241,7 @@ class Recording:
         callback_time: StreamTime,
         start_time: float,
         loop_length: int | None = None,
-        lenience: int = None,
+        lenience: int = round(config.sr * 0.2),
     ):
         self.lenience = lenience
         # Between pressing and the time the last callback happened are this

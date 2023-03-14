@@ -128,6 +128,7 @@ class Loop:
         else:
             if not isinstance(audio, Audio):
                 audio = Audio(audio, self.anchor.loop_length)
+            audio.actions.append(Start(audio.current_frame, audio.loop_length))
             self.new_audios.put(audio)
             self.audios.append(audio)
 

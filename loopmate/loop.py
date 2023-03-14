@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import queue
 from dataclasses import dataclass, field
 

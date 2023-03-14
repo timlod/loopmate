@@ -168,14 +168,16 @@ class Loop:
                 a = audio.get_n(frames)
                 outdata[:] += a
 
-            if self.anchor is not None:
-                self.actions.run(
-                    outdata, current_frame, self.anchor.current_frame
-                )
-
             # Store last output buffer to potentially send a slightly delayed
-            # version to headphones (to match the speaker sound latency)
+            # version to headphones (to match the speaker sound latency). We do
+            # this before running actions such that we can mute the two
+            # separately
             self.last_out = outdata.copy()
+
+            next_frame = (
+                0 if self.anchor is None else self.anchor.current_frame
+            )
+            self.actions.run(outdata, current_frame, next_frame)
 
         return callback
 

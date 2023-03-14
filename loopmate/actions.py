@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import queue
 from collections import deque
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import sounddevice as sd
-from scipy import signal as sig
 
 from loopmate import config
 

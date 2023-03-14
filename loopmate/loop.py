@@ -221,6 +221,9 @@ class Loop:
             self.callback_time,
             self.stream.time,
             self.anchor.loop_length if self.anchor is not None else None,
+            # Choosing lenience like this makes sure that if we're before
+            # halfway through the next loop, we still use the previous one -
+            # otherwise, we record the currently ongoing loop
             lenience=self.anchor.loop_length // 2,
         )
         recording.rec_start -= recording.loop_length * n

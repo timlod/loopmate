@@ -131,6 +131,36 @@ class CrossFade:
         return out
 
 
+class Sample(Action):
+    def __init__(
+        self, sample: np.ndarray, loop_length: int, gain: float = 1.0
+    ):
+        """(Immediately) play this sample when put into actions.  This is
+        currently kind of hacky as it overwrites essential functionality of the
+        Action class to allow triggering without an anchor present.
+
+        :param sample: array containing sample to play
+        :param loop_length: length of containing loop, to make sure that we can
+            immediately start playing
+        :param gain: gain to apply to sample
+        """
+        super().__init__(0, loop_length, loop_length)
+        self.sample = sample
+        # Overwrite n from Action (which would be set to loop_length) to allow
+        # playing samples longer than loop_length
+        self.n = len(sample)
+        self.gain = gain
+
+    def do(self, data):
+        sample = self.sample[
+            self.current_sample : self.current_sample + len(data)
+        ]
+        data[: len(sample)] += self.gain * sample
+
+    def index(self, current_frame, next_frame):
+        return 0, self.n
+
+
 class Effect(Action):
     def __init__(
         self, start: int, n: int, transformation: Callable, priority: int = 1

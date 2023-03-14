@@ -216,16 +216,11 @@ class Loop:
 class Recording:
     def __init__(
         self,
-        recordings: list[np.ndarray],
+        rec: CircularArray,
         callback_time: StreamTime,
         start_time: float,
-        loop_length: Audio | None = None,
+        loop_length: int | None = None,
     ):
-        # TODO: If there are added/dropped frames during recording, may have to
-        # account for them
-
-        lengths = [len(x) for x in recordings]
-
         # Between pressing and the time the last callback happened are this
         # many frames
         frames_since = round(callback_time.timediff(start_time) * config.sr)
@@ -244,11 +239,8 @@ class Recording:
                 + round(callback_time.output_delay * config.sr)
             )
 
-        # This is the actual recording array index of reference_frame at time
-        # of press, accounting for the input delay (time it takes a sample
-        # recorded to show up in the ADC)
-        indata_at = (
-            sum(lengths[:-1])
+        self.rec_start = (
+            rec.counter
             + frames_since
             + round(callback_time.input_delay * config.sr)
         )
@@ -262,88 +254,76 @@ class Recording:
             print(
                 f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
             )
-            indata_at += move
+            self.rec_start += move
         else:
             self.start_frame = 0
             self.loop_length = None
 
-        self.indata_start = indata_at
-        self.recordings = recordings
-
-    def append(self, indata):
-        self.recordings.append(indata)
+        self.rec = rec
 
     def finish(self, t, callback_time):
-        lengths = [len(x) for x in self.recordings]
-
         # Between pressing and the time the last callback happened are this
         # many frames
         frames_since = round(callback_time.timediff(t) * config.sr)
-        indata_at = (
-            sum(lengths[:-1])
+        self.rec_stop = (
+            self.rec.counter
             + frames_since
             + round(callback_time.input_delay * config.sr)
         )
-        n = indata_at - self.indata_start
+
+        n = self.rec_stop - self.rec_start
         if self.loop_length is not None:
             reference_frame = self.start_frame + n
             self.end_frame, move = self.quantize(reference_frame, False)
             print(f"\n\rMove {move} to {self.end_frame}")
-            indata_at += move
+            self.rec_stop += move
+            n += move
         else:
             self.end_frame = self.loop_length = n
 
-        recording = np.zeros(
-            (indata_at - self.indata_start, self.recordings[0].shape[1]),
-            dtype=np.float32,
-        )
-        recordings = np.concatenate(self.recordings)
-        self.recordings.clear()
-        # To potentially do a more graceful blending at loop boundaries
-        self.end_xfade = recordings[
-            self.indata_start - config.blend_frames : self.indata_start
-        ]
-        if len(self.end_xfade) < config.blend_frames:
-            self.end_xfade = np.zeros(
-                (config.blend_frames, recording.shape[1]), np.float32
-            )
+        if n == 0:
+            return None
+        if self.rec_stop > self.rec.counter:
+            wait_for = (
+                self.rec_stop - self.rec.counter + 2 * config.blocksize
+            ) / config.sr
+            print(f"Missing {self.rec_stop - self.rec.counter} frames.")
+            print(f"Waiting {wait_for}s.")
+            # Need to specify sleep time in ms, add blocksize to make sure we
+            # don't get a block too few
+            sd.sleep(int(wait_for * 1000))
+            print(f"c: {self.rec.counter}, s: {self.rec_stop}")
+            assert self.rec.counter >= self.rec_stop
 
-        # This is expressed in the full dimensions of recordings
-        available = min(len(recordings), indata_at)
-        recording[: available - self.indata_start] = recordings[
-            self.indata_start : available
-        ]
-        remaining = indata_at - available
-
-        audio = Audio(
-            recording,
-            self.loop_length,
-            self.start_frame,
-            0,
-            remove_pop=False,
+        back = self.rec.frames_since(self.rec_stop)
+        rec_i = -(n + back)
+        print(
+            f"{rec_i=}, {back=}, {n=}, {self.rec_stop=}, {self.rec.counter=}"
         )
+        recording = self.rec[rec_i:-back]
+        self.antipop(recording, self.rec[rec_i - config.blend_frames : rec_i])
+
         # We need to add the starting frame (in case we start this audio late)
         # as well as subtract the audio delay we added when we started
         # recording
+        n_loop_iter = int(2 * np.ceil(np.log2(n / self.loop_length)))
         n += self.start_frame - round(callback_time.output_delay * config.sr)
-        if n > audio.n_loop_iter * self.loop_length:
+        if n > n_loop_iter * self.loop_length:
             n = n % self.loop_length
-        audio.current_frame = n
-        print(audio)
+        audio = Audio(recording, self.loop_length, current_frame=n)
+        return audio
 
-        return audio, remaining
-
-    def antipop(self, audio):
-        # TODO: always crossfade, depends on whether full or partial loop
+    def antipop(self, recording, xfade_end):
+        # If we have a full loop, blend from pre-recording, else 0 blend
         if (self.end_frame % self.loop_length) == 0:
-            audio.audio[-config.blend_frames :] = (
-                RAMP * audio.audio[-config.blend_frames :]
-                + (1 - RAMP) * self.end_xfade
+            recording[-config.blend_frames :] = (
+                RAMP * recording[-config.blend_frames :]
+                + (1 - RAMP) * xfade_end
             )
         else:
             n_pw = len(POP_WINDOW) // 2
-            audio.audio[:n_pw] *= POP_WINDOW[:n_pw]
-            audio.audio[-n_pw:] *= POP_WINDOW[-n_pw:]
+            recording[:n_pw] *= POP_WINDOW[:n_pw]
+            recording[-n_pw:] *= POP_WINDOW[-n_pw:]
 
     def quantize(self, frame, start=True, lenience=0.2) -> (int, int):
         """Quantize start or end recording marker to the loop boundary if

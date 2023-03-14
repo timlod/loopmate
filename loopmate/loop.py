@@ -100,10 +100,7 @@ class Loop:
 
         # Always record the latest second buffers so we can look a little into
         # the past when recording
-        self.recent_audio = queue.deque(
-            maxlen=int(np.ceil(config.sr / config.blocksize))
-        )
-        self.ra = CircularArray(
+        self.recent_audio = CircularArray(
             config.sr * config.max_recording_length, config.channels
         )
         self.recording = None
@@ -149,16 +146,21 @@ class Loop:
             else:
                 current_frame = self.anchor.current_frame
 
+            # Align current frame for newly put audio - maybe not necessary now
+            for i in range(self.new_audios.qsize()):
+                audio = self.new_audios.get()
+                current_loop_iter = audio.current_frame // audio.loop_length
+                audio.current_frame = (
+                    current_loop_iter * audio.loop_length + current_frame
+                )
+
             # These times/frame refer to the frame that is processed in this
             # callback
             self.callback_time = StreamTime(time, current_frame, frames)
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
-            self.recent_audio.append(indata)
-            self.ra.write(indata)
-            if self.recording is not None:
-                self.recording.append(indata)
+            self.recent_audio.write(indata)
 
             outdata[:] = 0.0
             for audio in self.audios:
@@ -168,16 +170,6 @@ class Loop:
             if self.anchor is not None:
                 self.actions.run(
                     outdata, current_frame, self.anchor.current_frame
-                )
-
-            # Align current frame for newly put audio
-            # TODO: only add to new_audios when appropriate - done?
-            for i in range(self.new_audios.qsize()):
-                audio = self.new_audios.get()
-                current_loop_iter = audio.current_frame // audio.loop_length
-                audio.current_frame = (
-                    current_loop_iter * audio.loop_length
-                    + self.anchor.current_frame
                 )
 
             # Store last output buffer to potentially send a slightly delayed
@@ -205,23 +197,18 @@ class Loop:
         if self.recording is None:
             print("REC START")
             self.recording = Recording(
-                list(self.recent_audio),
+                self.recent_audio,
                 self.callback_time,
                 self.stream.time,
                 self.anchor.loop_length if self.anchor is not None else None,
             )
         else:
             print("REC FINISH")
-            audio, remaining = self.recording.finish(t, self.callback_time)
-            self.add_track(audio)
-            wait_for = (remaining + config.latency) / config.sr
-            if remaining > 0:
-                # await asyncio.sleep(wait_for * 2)
-                sd.sleep(int(wait_for * 2 * 1000))
-                audio.audio[-remaining:] = np.concatenate(
-                    self.recording.recordings
-                )[:remaining]
-            self.recording.antipop(audio)
+            audio = self.recording.finish(t, self.callback_time)
+            if audio is None:
+                print("Empty recording!")
+            else:
+                self.add_track(audio)
             self.recording = None
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 

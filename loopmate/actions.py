@@ -302,6 +302,9 @@ class Actions:
     active: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
     plans: asyncio.PriorityQueue = field(default_factory=asyncio.PriorityQueue)
 
+    def append(self, action: Action | Trigger):
+        self.actions.append(action)
+
     def run(self, outdata, current_frame, next_frame):
         """Run all actions (to be called once every callback)
 

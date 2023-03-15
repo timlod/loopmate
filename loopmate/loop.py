@@ -245,16 +245,11 @@ class Loop:
         )
         sd.sleep(wait_for)
         after = self.recent_audio.counter
-        recent_audio = self.recent_audio[
-            -(round(wait_for / 1000 * config.sr)) :
-        ]
-        i = recent_audio.sum(-1)[::-1].argmax()
-        after -= i
-        delay = (
-            after
-            + round(self.callback_time.output_delay * config.sr)
-            - at_sample
-            - round(self.callback_time.input_delay * config.sr)
+        frames_waited = after - at_sample
+        recent_audio = self.recent_audio[-frames_waited + indelay_frames :]
+        delay = recent_audio.sum(-1).argmax()
+        return delay
+
         )
         print(f"{delay=}")
 

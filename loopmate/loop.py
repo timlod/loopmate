@@ -237,7 +237,12 @@ class Loop:
         ll = 0 if self.anchor is None else self.anchor.loop_length
         self.actions.append(Sample(CLAVE, ll, 0.5))
         at_sample = self.recent_audio.counter
-        wait_for = 200 - round(self.callback_time.output_delay * 1000)
+        indelay_frames = round(self.callback_time.input_delay * config.sr)
+        wait_for = (
+            200
+            - round(self.callback_time.output_delay * 1000)
+            + round(self.callback_time.input_delay * 1000)
+        )
         sd.sleep(wait_for)
         after = self.recent_audio.counter
         recent_audio = self.recent_audio[

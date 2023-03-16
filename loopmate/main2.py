@@ -78,7 +78,7 @@ class MidiQueue:
                 self.loop.measure_air_delay()
 
 
-async def main():
+async def main(aioloop):
     print(sd.query_devices())
     piano, _ = sf.read("../data/piano.wav", dtype=np.float32)
     clave, _ = sf.read("../data/clave.wav", dtype=np.float32)
@@ -90,7 +90,7 @@ async def main():
         )
     )
     # loop = Loop(Audio(piano))
-    loop = Loop(Audio(clave))
+    loop = Loop(Audio(clave), aioloop)
     loop.start()
     hl = ExtraOutput(loop)
     # loop = Loop()
@@ -126,7 +126,7 @@ async def main():
 
 if __name__ == "__main__":
     aioloop = asyncio.get_event_loop()
-    aioloop.run_until_complete(main())
+    aioloop.run_until_complete(main(aioloop))
 
     # root = Tk()
     # frm = ttk.Frame(root, padding=10)

@@ -31,7 +31,11 @@ class Audio:
     channels: int = field(init=False)
 
     def __post_init__(self):
-        self.n, self.channels = self.audio.shape
+        try:
+            self.n, self.channels = self.audio.shape
+        except ValueError:
+            self.n, self.channels = len(self.audio), 1
+            self.audio = self.audio[:, None]
         if self.loop_length is None:
             self.loop_length = self.n
 

@@ -234,6 +234,12 @@ class Loop:
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
     def measure_air_delay(self):
+        """
+        Measure the air delay between speaker and microphone by playing a clave
+        sound and recording it with the microphone.  Calculates the time
+        difference between when the sound was played and when it was received.
+        Returns the air delay in number of samples.
+        """
         ll = 0 if self.anchor is None else self.anchor.loop_length
         self.actions.append(Sample(CLAVE, ll, 0.5))
         at_sample = self.recent_audio.counter
@@ -269,7 +275,8 @@ class ExtraOutput:
         self.sync_time = (
             self.loop.callback_time.current - self.callback_time.current
         )
-        self.align()
+        ad = loop.measure_air_delay()
+        self.align(ad)
 
     def _get_callback(self):
         """
@@ -288,10 +295,10 @@ class ExtraOutput:
 
         return callback
 
-    def align(self):
+    def align(self, air_delay=config.air_delay):
         self_od = -self.callback_time.output_delay
         loop_od = -self.loop.callback_time.output_delay
-        self.add_delay = loop_od + config.air_delay - self_od
+        self.add_delay = loop_od + air_delay - self_od
         while True:
             ct, audio = self.loop.last_out[0]
             if (
@@ -304,7 +311,7 @@ class ExtraOutput:
                     print(
                         f"Headphone device's output delay ({self_od:.4f}s) is "
                         "longer than reference output delay + air delay "
-                        f"({loop_od+config.air_delay:.4f}s)!\nMismatch: "
+                        f"({loop_od+air_delay:.4f}s)!\nMismatch: "
                         f" {self.add_delay:.4f}s"
                     )
                     self.start = True

@@ -91,22 +91,21 @@ class Audio:
 
 
 class Loop:
-    def __init__(self, anchor: Audio | None = None, aioloop=None):
+    def __init__(self, anchor: Audio | None = None):
         self.audios = []
         self.new_audios = queue.Queue()
         self.anchor = anchor
         if anchor is not None:
             self.audios.append(anchor)
 
-        # Always record the latest second buffers so we can look a little into
-        # the past when recording
+        # Always record audio buffers so we can easily look back for loopables
         self.recent_audio = CircularArray(
             config.sr * config.max_recording_length, config.channels
         )
         self.recording = None
 
         # Global actions applied to fully mixed audio
-        self.actions = Actions(aioloop)
+        self.actions = Actions()
 
         self.stream = sd.Stream(
             samplerate=config.sr,

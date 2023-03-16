@@ -90,8 +90,8 @@ async def main():
         )
     )
     # loop = Loop(Audio(piano))
-    aioloop = asyncio.get_event_loop()
-    loop = Loop(Audio(clave), aioloop)
+    loop = Loop(Audio(clave))
+    loop.start()
     # loop = Loop()
     print(loop)
 
@@ -124,8 +124,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    aioloop = asyncio.get_event_loop()
+    aioloop.run_until_complete(main())
 
     # root = Tk()
     # frm = ttk.Frame(root, padding=10)

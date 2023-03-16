@@ -337,7 +337,6 @@ class BackCaptureTrigger(Trigger):
 @dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
-    aioloop: Any
     max: int = 20
     actions: list = field(default_factory=deque)
     active: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)

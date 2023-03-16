@@ -16,7 +16,7 @@ from loopmate.actions import (
     MuteTrigger,
     RecordTrigger,
 )
-from loopmate.loop import Audio, Loop
+from loopmate.loop import Audio, ExtraOutput, Loop
 
 
 class MidiQueue:
@@ -92,6 +92,7 @@ async def main():
     # loop = Loop(Audio(piano))
     loop = Loop(Audio(clave))
     loop.start()
+    hl = ExtraOutput(loop)
     # loop = Loop()
     print(loop)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -116,7 +117,7 @@ class Loop:
             blocksize=config.blocksize,
         )
         self.callback_time = None
-        self.last_out = None
+        self.last_out = deque(maxlen=20)
 
     def add_track(self, audio):
         if len(self.audios) == 0:
@@ -171,7 +172,7 @@ class Loop:
             # version to headphones (to match the speaker sound latency). We do
             # this before running actions such that we can mute the two
             # separately
-            self.last_out = outdata.copy()
+            self.last_out.append((self.callback_time, outdata.copy()))
 
             next_frame = (
                 0 if self.anchor is None else self.anchor.current_frame
@@ -249,8 +250,68 @@ class Loop:
         delay = recent_audio.sum(-1).argmax()
         return delay
 
+
+class ExtraOutput:
+    def __init__(self, loop: Loop):
+        self.loop = loop
+        self.callback_time: StreamTime = None
+        self.stream = sd.OutputStream(
+            samplerate=config.sr,
+            device=config.headphone_device,
+            channels=config.channels,
+            callback=self._get_callback(),
+            latency=config.latency * 0.1,
+            blocksize=config.blocksize,
         )
-        print(f"{delay=}")
+        self.start = False
+        self.stream.start()
+        sd.sleep(1000)
+        self.sync_time = (
+            self.loop.callback_time.current - self.callback_time.current
+        )
+        self.align()
+
+    def _get_callback(self):
+        """
+        Creates callback function for this loop.
+        """
+
+        def callback(outdata, frames, time, status):
+            if status:
+                print(status)
+
+            self.callback_time = StreamTime(time, 0, frames)
+            if not self.start:
+                outdata[:] = 0.0
+            else:
+                _, outdata[:] = self.loop.last_out.popleft()
+
+        return callback
+
+    def align(self):
+        self_od = -self.callback_time.output_delay
+        loop_od = -self.loop.callback_time.output_delay
+        self.add_delay = loop_od + config.air_delay - self_od
+        while True:
+            ct, audio = self.loop.last_out[0]
+            if (
+                ct.output + self.add_delay
+                < self.callback_time.output + self.sync_time
+            ):
+                if len(self.loop.last_out) > 1:
+                    self.loop.last_out.popleft()
+                else:
+                    print(
+                        f"Headphone device's output delay ({self_od:.4f}s) is "
+                        "longer than reference output delay + air delay "
+                        f"({loop_od+config.air_delay:.4f}s)!\nMismatch: "
+                        f" {self.add_delay:.4f}s"
+                    )
+                    self.start = True
+                    break
+            else:
+                self.start = True
+                break
 
 
 class Recording:

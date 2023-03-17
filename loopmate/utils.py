@@ -1,4 +1,6 @@
+import ctypes
 from dataclasses import dataclass
+from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 import soundfile as sf
@@ -82,7 +84,7 @@ class CircularArray:
     def __init__(self, N, channels=2):
         self.data = np.zeros((N, channels), dtype=np.float32)
         self.N = N
-        self.i = 0
+        self.write_counter = 0
         # Use to compute differences in samples between two points in time
         self.counter = 0
 
@@ -102,8 +104,8 @@ class CircularArray:
         assert (
             -self.N < start < stop <= 0
         ), f"Can only slice at most N ({self.N}) items backward on!"
-        l_i = self.i + start
-        r_i = self.i + stop
+        l_i = self.write_counter + start
+        r_i = self.write_counter + stop
         if l_i < 0 <= r_i:
             return np.concatenate((self.data[l_i:], self.data[:r_i]), out=out)
         else:
@@ -121,7 +123,7 @@ class CircularArray:
         return self.query(i)
 
     def index_offset(self, offset):
-        if (i := self.i + offset) > self.N:
+        if (i := self.write_counter + offset) > self.N:
             return i % self.N
         elif i < 0:
             return self.N + i
@@ -139,17 +141,128 @@ class CircularArray:
         n = len(arr)
         arr_i = 0
 
-        # right index
-        r_i = self.i + n
+        # left index - use 0 + to avoid copying the reference to SharedInt
+        l_i = 0 + self.write_counter
+        self.write_counter += n
         # Wrap around if we cross the boundary in data
-        if r_i > self.N:
-            arr_i = self.N - self.i
-            self.data[self.i :] = arr[:arr_i]
-            r_i = r_i % self.N
-            self.i = 0
-        self.data[self.i : r_i] = arr[arr_i:]
-        self.i = r_i
+        if self.write_counter >= self.N:
+            arr_i = self.N - l_i
+            self.data[l_i:] = arr[:arr_i]
+            self.write_counter %= self.N
+            l_i = 0
+        print(f"{l_i=}, {self.write_counter=}, {arr_i=}")
+        self.data[l_i : self.write_counter] = arr[arr_i:]
         self.counter += n
 
+    def make_shared(self, name="recording", create=False):
+        self.shm = SharedMemory(
+            name=name, create=create, size=self.data.nbytes + 16
+        )
+        data = np.ndarray(
+            self.data.shape, dtype=self.data.dtype, buffer=self.shm.buf[16:]
+        )
+        write_counter = SharedInt(self.shm, 0)
+        counter = SharedInt(self.shm, 8)
+        if create:
+            data[:] = self.data[:]
+            write_counter.value = self.write_counter
+            counter.value = self.counter
+        self.data = data
+        self.write_counter = write_counter
+        self.counter = counter
+
+    def stop_sharing(self, unlink=True):
+        assert isinstance(self.write_counter, SharedInt), "Not sharing!"
+        self.data = self.data.copy()
+        self.write_counter = self.write_counter.value
+        self.counter = self.counter.value
+        self.shm.close()
+        if unlink:
+            # Ignore if already closed by another process
+            try:
+                self.shm.unlink()
+            except FileNotFoundError:
+                pass
+        self.shm = None
+
     def __repr__(self):
-        return self.data.__repr__() + f"\ni: {self.i}"
+        return self.data.__repr__() + f"\ni: {self.write_counter}"
+
+
+class SharedInt:
+    def __init__(self, shared_memory_object, offset=0, value=None):
+        self._int = ctypes.c_int64.from_buffer(
+            shared_memory_object.buf, offset
+        )
+        if value is not None:
+            assert isinstance(value, int)
+            self.value = value
+
+    def __add__(self, other):
+        return self.value + other
+
+    def __radd__(self, other):
+        return other + self.value
+
+    def __iadd__(self, other):
+        self.value += other
+        return self
+
+    def __sub__(self, other):
+        return self.value - other
+
+    def __rsub__(self, other):
+        return other - self.value
+
+    def __isub__(self, other):
+        self.value -= other
+        return self
+
+    def __floordiv__(self, other):
+        return self.value // other
+
+    def __ifloordiv__(self, other):
+        self.value //= other
+        return self
+
+    def __rmod__(self, other):
+        return other % self.value
+
+    def __mod__(self, other):
+        return self.value % other
+
+    def __imod__(self, other):
+        self.value %= other
+        return self
+
+    def __eq__(self, other):
+        return self.value == other
+
+    def __le__(self, other):
+        return self.value <= other
+
+    def __ge__(self, other):
+        return self.value >= other
+
+    def __lt__(self, other):
+        return self.value < other
+
+    def __gt__(self, other):
+        return self.value > other
+
+    def __index__(self):
+        return self.value
+
+    def __str__(self):
+        return str(self.value)
+
+    def __repr__(self):
+        return f"SharedInt({self.value})"
+
+    @property
+    def value(self):
+        return self._int.value
+
+    @value.setter
+    def value(self, new_value):
+        self._int.value = new_value

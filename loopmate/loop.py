@@ -275,12 +275,12 @@ class ExtraOutput:
         )
         self.start = False
         self.stream.start()
-        sd.sleep(1000)
+        sd.sleep(500)
         self.sync_time = (
             self.loop.callback_time.current - self.callback_time.current
         )
         ad = loop.measure_air_delay()
-        self.align(ad)
+        self.align(ad / config.sr)
 
     def _get_callback(self):
         """

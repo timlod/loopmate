@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
+import scipy as sp
 import soundfile as sf
 from scipy import signal as sig
 
@@ -187,6 +188,31 @@ class CircularArray:
 
     def __repr__(self):
         return self.data.__repr__() + f"\ni: {self.write_counter}"
+
+
+class CircularArraySTFT(CircularArray):
+    def __init__(self, N, channels=2, n_fft=2048, hop_length=256):
+        super().__init__(N, channels)
+        self.stft = np.zeros(
+            (1 + int(n_fft / 2), int(np.ceil(N / hop_length))),
+            dtype=np.complex64,
+        )
+        self.stft_counter = 0
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.window = sig.windows.hann(n_fft)
+
+    def fft(self):
+        # Make sure this runs at every update!
+        bit = self[-self.n_fft :].mean(-1)
+        self.stft[:, self.stft_counter] = np.fft.rfft(self.window * bit)
+        self.stft_counter += 1
+        if self.stft_counter > self.stft.shape[1]:
+            self.stft_counter = 0
+
+    def write(self, arr):
+        super().write(arr)
+        self.fft()
 
 
 class SharedInt:

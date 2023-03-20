@@ -267,25 +267,126 @@ class PeakTracker:
             self.relative.popleft()
         for i in range(len(self.relative)):
             self.relative[i] -= 1
+
+
 class CircularArraySTFT(CircularArray):
-    def __init__(self, N, channels=2, n_fft=2048, hop_length=256):
+    def __init__(self, N, channels=2, n_fft=2048, hop_length=256, sr=44100):
         super().__init__(N, channels)
+        self.N_stft = int(np.ceil(N / hop_length))
         self.stft = np.zeros(
-            (1 + int(n_fft / 2), int(np.ceil(N / hop_length))),
+            (1 + int(n_fft / 2), self.N_stft),
             dtype=np.complex64,
         )
+
+        self.c = 0
         self.stft_counter = 0
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.window = sig.windows.hann(n_fft)
 
+        # Onset tracking vars
+        self.onset_env = np.zeros(
+            int(np.ceil(N / hop_length)), dtype=np.float32
+        )
+        self.onset_env_minmax = EMA_MinMaxTracker()
+
+        self.mov_max = np.zeros(int(np.ceil(N / hop_length)), dtype=np.float32)
+        self.mov_avg = np.zeros(int(np.ceil(N / hop_length)), dtype=np.float32)
+
+        # Onset detection parameters
+        pre_max = int(0.03 * sr // hop_length)
+        post_max = int(0.0 * sr // hop_length + 1)
+        self.max_length = pre_max + post_max
+        max_origin = int(np.ceil(0.5 * (pre_max - post_max)))
+        self.max_offset = (self.max_length // 2) - max_origin
+
+        pre_avg = int(0.1 * sr // hop_length)
+        post_avg = int(0.1 * sr // hop_length + 1)
+        self.avg_length = pre_avg + post_avg
+        avg_origin = int(np.ceil(0.5 * (pre_avg - post_avg)))
+        self.avg_offset = (self.avg_length // 2) - avg_origin
+
+        self.wait = int(0.03 * sr // hop_length)
+        self.delta = 0.07
+
+        self.peaks = PeakTracker(
+            self.N_stft, min(-self.max_offset, -self.avg_offset)
+        )
+
+    def index_offset_stft(self, offset: Union[int, np.ndarray]):
+        if isinstance(offset, np.ndarray):
+            i = self.stft_counter + offset
+            return np.where(
+                i > self.N_stft,
+                i % self.N_stft,
+                np.where(i < 0, self.N_stft + i, i),
+            )
+        else:
+            if (i := self.stft_counter + offset) > self.N_stft:
+                return i % self.N_stft
+            elif i < 0:
+                return self.N_stft + i
+            else:
+                return i
+
     def fft(self):
         # Make sure this runs at every update!
         bit = self[-self.n_fft :].mean(-1)
         self.stft[:, self.stft_counter] = np.fft.rfft(self.window * bit)
+        self.analyze()
         self.stft_counter += 1
-        if self.stft_counter > self.stft.shape[1]:
+        if self.stft_counter >= self.stft.shape[1]:
             self.stft_counter = 0
+
+    def analyze(self):
+        # Get power
+        mag = np.abs(self.stft[:, self.stft_counter]) ** 2
+        magm1 = np.abs(self.stft[:, self.index_offset_stft(-1)]) ** 2
+        # Convert to DB
+        s = 10.0 * np.log10(np.maximum(1e-10, mag))
+        s = np.maximum(s, 34 - 80)
+        sm1 = 10.0 * np.log10(np.maximum(1e-10, magm1))
+        sm1 = np.maximum(sm1, 34 - 80)
+        # Aggregate frequencies
+        onset_env = np.maximum(0.0, s - sm1).mean()
+
+        # Normalize
+        self.onset_env_minmax.add_sample(onset_env)
+        onset_env = self.onset_env_minmax.normalize_sample(onset_env)
+
+        self.onset_env[self.stft_counter] = onset_env
+
+        mov_max_cur = self.index_offset_stft(-self.max_offset)
+        self.mov_max[mov_max_cur] = np.max(
+            query_circular(
+                self.onset_env,
+                slice(-self.max_length, None),
+                self.stft_counter,
+            )
+        )
+        mov_avg_cur = self.index_offset_stft(-self.avg_offset)
+        self.mov_avg[mov_avg_cur] = np.mean(
+            query_circular(
+                self.onset_env,
+                slice(-self.avg_length, None),
+                self.stft_counter,
+            )
+        )
+        # The average filter is usually wider than the max filter, and
+        # determines our lag wrt. onset detection.
+        cur = mov_avg_cur if self.avg_offset > self.max_offset else mov_max_cur
+        detect = self.onset_env[cur] * (
+            self.onset_env[cur] == self.mov_max[cur]
+        )
+        detect *= detect >= self.mov_avg[cur] + self.delta
+        if detect:
+            self.c += 1
+            last_onset = (
+                self.peaks.relative[-1] if self.peaks.relative else -100
+            )
+            if -self.avg_offset > last_onset + self.wait:
+                self.peaks.add_element()
+        self.peaks.decrement()
 
     def write(self, arr):
         super().write(arr)

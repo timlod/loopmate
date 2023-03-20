@@ -327,9 +327,12 @@ class CircularArraySTFT(CircularArray):
         self.wait = int(0.03 * sr // hop_length)
         self.delta = 0.07
 
-        self.peaks = PeakTracker(
-            self.N_stft, min(-self.max_offset, -self.avg_offset)
+        offset = (
+            -self.avg_offset
+            if self.avg_offset > self.max_offset
+            else -self.max_offset
         )
+        self.peaks = PeakTracker(self.N_stft, offset)
 
     def index_offset_stft(self, offset: Union[int, np.ndarray]):
         if isinstance(offset, np.ndarray):
@@ -357,7 +360,7 @@ class CircularArraySTFT(CircularArray):
             self.stft_counter = 0
 
     def analyze(self):
-        # Get power
+        # Potentially move over to fft
         mag = np.abs(self.stft[:, self.stft_counter]) ** 2
         magm1 = np.abs(self.stft[:, self.index_offset_stft(-1)]) ** 2
         # Convert to DB
@@ -404,7 +407,9 @@ class CircularArraySTFT(CircularArray):
                 self.peaks.relative[-1] if self.peaks.relative else -100
             )
             if -self.avg_offset > last_onset + self.wait:
+                # Found an onset
                 self.peaks.add_element()
+
         self.peaks.decrement()
 
     def write(self, arr):

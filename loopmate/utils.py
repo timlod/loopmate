@@ -1,6 +1,8 @@
 import ctypes
+from collections import deque
 from dataclasses import dataclass
 from multiprocessing.shared_memory import SharedMemory
+from typing import Optional, Union
 
 import numpy as np
 import scipy as sp

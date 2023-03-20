@@ -248,6 +248,25 @@ class EMA_MinMaxTracker:
         sample -= self.min_val
         return sample / (self.max_val + self.eps)
 
+class PeakTracker:
+    def __init__(self, N, offset=0):
+        self.N = N
+        self.absolute = deque()
+        self.relative = deque()
+        self.current_step = 0
+        self.offset = offset
+
+    def add_element(self):
+        self.absolute.append(self.current_step)
+        self.relative.append(self.offset)
+
+    def decrement(self):
+        self.current_step -= 1
+        while self.absolute and self.absolute[0] - self.N > self.current_step:
+            self.absolute.popleft()
+            self.relative.popleft()
+        for i in range(len(self.relative)):
+            self.relative[i] -= 1
 class CircularArraySTFT(CircularArray):
     def __init__(self, N, channels=2, n_fft=2048, hop_length=256):
         super().__init__(N, channels)

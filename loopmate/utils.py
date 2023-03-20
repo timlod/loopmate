@@ -216,11 +216,21 @@ class CircularArray:
 
 
 class EMA_MinMaxTracker:
-    def __init__(self, alpha=0.0001, eps=1e-10):
+    def __init__(
+        self,
+        alpha=0.0001,
+        eps=1e-10,
+        min0=0,
+        max0=-np.inf,
+        minmin=-np.inf,
+        minmax=-np.inf,
+    ):
         self.alpha = alpha
         self.eps = eps
-        self.min_val = 0
-        self.max_val = float("-inf")
+        self.min_val = min0
+        self.max_val = max0
+        self.minmin = minmin
+        self.minmax = minmax
 
     def add_sample(self, sample):
         # Update min_val and max_val using exponential moving average
@@ -228,25 +238,28 @@ class EMA_MinMaxTracker:
         if sample < self.min_val:
             # print(f"new min: {sample}")
             self.min_val = sample
+        elif sample < self.minmin:
+            pass
         else:
             self.min_val = (
                 self.min_val * (1 - self.alpha) + sample * self.alpha
             )
 
         if sample > self.max_val:
-            # print(f"new max: {sample}")
             self.max_val = sample
+        elif sample < self.minmax:
+            pass
         else:
             self.max_val = (
                 self.max_val * (1 - self.alpha) + sample * self.alpha
             )
 
     def normalize_sample(self, sample):
-        # print(f"{self.min_val=}, {self.max_val=}, ")
         if self.max_val == self.min_val:
             return 0  # Avoid division by zero
         sample -= self.min_val
         return sample / (self.max_val + self.eps)
+
 
 class PeakTracker:
     def __init__(self, N, offset=0):
@@ -288,7 +301,12 @@ class CircularArraySTFT(CircularArray):
         self.onset_env = np.zeros(
             int(np.ceil(N / hop_length)), dtype=np.float32
         )
-        self.onset_env_minmax = EMA_MinMaxTracker()
+        self.onset_env_minmax = EMA_MinMaxTracker(
+            min0=0, minmin=0, max0=1, alpha=0.001
+        )
+        self.logspec_minmax = EMA_MinMaxTracker(
+            max0=10, minmax=0, alpha=0.0005
+        )
 
         self.mov_max = np.zeros(int(np.ceil(N / hop_length)), dtype=np.float32)
         self.mov_avg = np.zeros(int(np.ceil(N / hop_length)), dtype=np.float32)
@@ -344,9 +362,10 @@ class CircularArraySTFT(CircularArray):
         magm1 = np.abs(self.stft[:, self.index_offset_stft(-1)]) ** 2
         # Convert to DB
         s = 10.0 * np.log10(np.maximum(1e-10, mag))
-        s = np.maximum(s, 34 - 80)
+        self.logspec_minmax.add_sample(s.max())
+        s = np.maximum(s, self.logspec_minmax.max_val - 80)
         sm1 = 10.0 * np.log10(np.maximum(1e-10, magm1))
-        sm1 = np.maximum(sm1, 34 - 80)
+        sm1 = np.maximum(sm1, self.logspec_minmax.max_val - 80)
         # Aggregate frequencies
         onset_env = np.maximum(0.0, s - sm1).mean()
 

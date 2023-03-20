@@ -78,6 +78,43 @@ class StreamTime:
         return f"StreamTime({self.current}, {self.input}, {self.output}, {self.frame})"
 
 
+def query_circular(
+    data: np.ndarray,
+    idx_slice: slice,
+    counter: int,
+    out: Optional[np.ndarray] = None,
+):
+    """Return n samples, backwards from current counter.  Note: returns a copy
+    of the requested data
+
+    :param data: array to make a circular query into
+    :param idx_slice: slice of samples to return.  Needs to satisfy -self.N <
+        start < stop <= 0.  Ignores slice step.
+    :param counter: index pointing to the latest entry in data (counter + 1
+        will be the last entry)
+    :param out: array to place the samples into.  Can be used to re-use an
+        array of loop_length for sample storage to avoid extra memory copies.
+    """
+    assert isinstance(
+        idx_slice, slice
+    ), f"Use slice for indexing! (Got {idx_slice})"
+    start, stop = idx_slice.start or 0, idx_slice.stop or 0
+    N = len(data)
+    assert (
+        -N < start < stop <= 0
+    ), f"Can only slice at most N ({N}) items backward on!"
+    l_i = counter + start
+    r_i = counter + stop
+    if l_i < 0 <= r_i:
+        return np.concatenate((data[l_i:], data[:r_i]), out=out)
+    else:
+        if out is not None:
+            out[:] = data[l_i:r_i]
+            return out
+        else:
+            return data[l_i:r_i].copy()
+
+
 class CircularArray:
     """
     Simple implementation of an array which can be indexed and written to in a
@@ -102,21 +139,7 @@ class CircularArray:
             array of loop_length for sample storage to avoid extra memory
             copies.
         """
-        assert isinstance(i, slice), f"Use slice for indexing! (Got {i})"
-        start, stop = i.start or 0, i.stop or 0
-        assert (
-            -self.N < start < stop <= 0
-        ), f"Can only slice at most N ({self.N}) items backward on!"
-        l_i = self.write_counter + start
-        r_i = self.write_counter + stop
-        if l_i < 0 <= r_i:
-            return np.concatenate((self.data[l_i:], self.data[:r_i]), out=out)
-        else:
-            if out is not None:
-                out[:] = self.data[l_i:r_i]
-                return out
-            else:
-                return self.data[l_i:r_i].copy()
+        return query_circular(self.data, i, self.write_counter, out)
 
     def __getitem__(self, i):
         """Get samples from this array. This returns a copy.

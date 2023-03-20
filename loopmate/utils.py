@@ -215,6 +215,39 @@ class CircularArray:
         return self.data.__repr__() + f"\ni: {self.write_counter}"
 
 
+class EMA_MinMaxTracker:
+    def __init__(self, alpha=0.0001, eps=1e-10):
+        self.alpha = alpha
+        self.eps = eps
+        self.min_val = 0
+        self.max_val = float("-inf")
+
+    def add_sample(self, sample):
+        # Update min_val and max_val using exponential moving average
+        # sample = abs(sample)
+        if sample < self.min_val:
+            # print(f"new min: {sample}")
+            self.min_val = sample
+        else:
+            self.min_val = (
+                self.min_val * (1 - self.alpha) + sample * self.alpha
+            )
+
+        if sample > self.max_val:
+            # print(f"new max: {sample}")
+            self.max_val = sample
+        else:
+            self.max_val = (
+                self.max_val * (1 - self.alpha) + sample * self.alpha
+            )
+
+    def normalize_sample(self, sample):
+        # print(f"{self.min_val=}, {self.max_val=}, ")
+        if self.max_val == self.min_val:
+            return 0  # Avoid division by zero
+        sample -= self.min_val
+        return sample / (self.max_val + self.eps)
+
 class CircularArraySTFT(CircularArray):
     def __init__(self, N, channels=2, n_fft=2048, hop_length=256):
         super().__init__(N, channels)

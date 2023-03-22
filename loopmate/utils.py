@@ -296,6 +296,7 @@ class CircularArraySTFT(CircularArray):
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.window = sig.windows.hann(n_fft)
+        self.sr = sr
 
         # Onset tracking vars
         self.onset_env = np.zeros(
@@ -412,9 +413,126 @@ class CircularArraySTFT(CircularArray):
 
         self.peaks.decrement()
 
+    def bpm_quantize(self, start, end):
+        # start and end are negative
+        start_f = samples_to_frames(start)
+        end_f = samples_to_frames(end)
+        onset_env = query_circular(
+            self.onset_env, slice(start_f, end_f), self.stft_counter
+        )
+        onsets = np.array(self.peaks.relative)
+        # onsets = onsets[(onsets >= start_f) & (onsets <= end_f)]
+        _, bpm = estimate_bpm(
+            onset_env, self.sr // self.hop_length, convolve=False
+        )
+        print(bpm)
+        beat_len = (self.sr // self.hop_length) // (bpm / 60)
+        start_diff = np.abs(onsets - start_f)
+        potential_start = (
+            onsets[(onsets > start_f) & (onsets < start_f + 4 * beat_len)]
+            - beat_len
+        )
+        ps_diff = np.abs(potential_start - start)
+        lenience = round(self.sr // self.hop_length * 0.1)
+        if start_diff[(i := start_diff.argmin())] < lenience:
+            print(f"{start_f=} -> {onsets[i]=}")
+            start_f = onsets[i]
+            start_move = start_diff[i]
+        elif ps_diff[(i := ps_diff.argmin())] < lenience:
+            print(f"{start_f=} -> {potential_start[i]=}")
+            start_f = potential_start[i]
+            start_move = ps_diff[i]
+        else:
+            start_move = 0
+
+        print(f"{onsets=}\n{end_f=}\n{beat_len=}")
+
+        end_diff = np.abs(onsets - end_f)
+        potential_end = (
+            onsets[(onsets < end_f) & (onsets > end_f - 4 * beat_len)]
+            + beat_len
+        )
+        ps_diff = np.abs(potential_end - end_f)
+        print(f"{end_diff=}\n{potential_end=}\n{ps_diff=}")
+
+        if end_diff[(i := end_diff.argmin())] < lenience:
+            print(f"{end_f=} -> {onsets[i]=}")
+            end_f = onsets[i]
+            end_move = end_diff[i]
+        elif ps_diff[(i := ps_diff.argmin())] < lenience:
+            print(f"{end_f=} -> {potential_end[i]=}")
+            end_f = potential_end[i]
+            end_move = ps_diff[i]
+        else:
+            end_move = 0
+
     def write(self, arr):
         super().write(arr)
         self.fft()
+
+
+def get_bpm(groups):
+    amps = [sum(peak[0] for peak in group) for group in groups]
+    return groups[np.argmax(amps)][-1][-1]
+
+
+def estimate_bpm(x, sr, tolerance=0.01, ds=1, convolve=True):
+    if x.ndim > 1:
+        x = x.mean(axis=1)
+
+    if convolve:
+        kernel_size = round(sr * 0.001)
+        kernel = np.ones(kernel_size) / kernel_size
+        x = np.convolve(x**2, kernel, mode="same")
+
+    # Normalize by RMS
+    norm = np.sqrt(np.mean(x**2))
+    x = x / norm
+
+    # Calculate the FFT and obtain the magnitude spectrum
+    spectrum = np.abs(np.fft.rfft(x[::ds], n=len(x)))
+
+    # Calculate the frequency corresponding to each FFT bin
+    freqs = np.fft.rfftfreq(x.size, 1 / (sr / ds))
+    # Convert frequencies to BPM
+    bpms = 60 * freqs
+
+    # Filter out BPMs that are outside the reasonable range (e.g., 50-200 BPM)
+    valid_indices = (bpms >= 30) & (bpms <= 300)
+    valid_bpms = bpms[valid_indices]
+    valid_spectrum = spectrum[valid_indices]
+
+    plt.plot(valid_bpms, valid_spectrum)
+
+    # Use top n frequencies to allow
+    peaks = sp.signal.find_peaks(valid_spectrum)[0]
+    groups = []
+
+    for peak in peaks:
+        found_group = False
+        amplitude = valid_spectrum[peak]
+        bpm = valid_bpms[peak]
+        for group in groups:
+            for _, _, _, group_bpm in group:
+                ratio = bpm / group_bpm
+                dev = abs(round(ratio) - ratio)
+                if dev <= tolerance:
+                    group.append(
+                        (
+                            amplitude,
+                            dev,
+                            round(ratio),
+                            valid_bpms[peak],
+                        )
+                    )
+                    found_group = True
+                    break
+            if found_group:
+                break
+
+        if not found_group:
+            groups.append([(amplitude, 0, 1, valid_bpms[peak])])
+    return groups, get_bpm(groups)
 
 
 class SharedInt:

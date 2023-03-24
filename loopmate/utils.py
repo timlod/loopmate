@@ -302,6 +302,13 @@ class CircularArraySTFT(CircularArray):
         self.onset_env = np.zeros(
             int(np.ceil(N / hop_length)), dtype=np.float32
         )
+        self.tg_win_len = 384
+        self.tg_window = sig.windows.hann(self.tg_win_len)
+        self.tg = np.zeros(
+            (self.tg_win_len, len(self.onset_env)),
+            dtype=np.float32,
+        )
+        self.tg_counter = 0
         self.onset_env_minmax = EMA_MinMaxTracker(
             min0=0, minmin=0, max0=1, alpha=0.001
         )
@@ -356,9 +363,21 @@ class CircularArraySTFT(CircularArray):
         bit = self[-self.n_fft :].mean(-1)
         self.stft[:, self.stft_counter] = np.fft.rfft(self.window * bit)
         self.analyze()
+        oe_slice = query_circular(
+            self.onset_env, slice(-self.tg_win_len, None), self.stft_counter
+        )
+        n_pad = 2 * self.tg_win_len - 1
+        self.tg[:, self.tg_counter] = np.fft.irfft(
+            np.abs(np.fft.rfft(self.tg_window * oe_slice, n=n_pad)) ** 2,
+            n=n_pad,
+        )[: self.tg_win_len]
+
         self.stft_counter += 1
+        self.tg_counter += 1
         if self.stft_counter >= self.stft.shape[1]:
             self.stft_counter = 0
+        if self.tg_counter >= self.tg.shape[1]:
+            self.tg_counter = 0
 
     def analyze(self):
         # Potentially move over to fft

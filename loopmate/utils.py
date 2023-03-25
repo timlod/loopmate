@@ -94,25 +94,37 @@ def query_circular(
         will be the last entry)
     :param out: array to place the samples into.  Can be used to re-use an
         array of loop_length for sample storage to avoid extra memory copies.
+    :param axis: either 0 (slice first axis) or -1 (slice last axis)
     """
     assert isinstance(
         idx_slice, slice
     ), f"Use slice for indexing! (Got {idx_slice})"
     start, stop = idx_slice.start or 0, idx_slice.stop or 0
-    N = len(data)
+    N = data.shape[axis]
     assert (
         -N < start < stop <= 0
     ), f"Can only slice at most N ({N}) items backward on!"
     l_i = counter + start
     r_i = counter + stop
     if l_i < 0 <= r_i:
-        return np.concatenate((data[l_i:], data[:r_i]), out=out)
+        if axis != 0:
+            return np.concatenate(
+                (data[..., l_i:], data[..., :r_i]), out=out, axis=axis
+            )
+        else:
+            return np.concatenate((data[l_i:], data[:r_i]), out=out, axis=axis)
     else:
         if out is not None:
-            out[:] = data[l_i:r_i]
+            if axis != 0:
+                out[:] = data[..., l_i:r_i]
+            else:
+                out[:] = data[l_i:r_i]
             return out
         else:
-            return data[l_i:r_i].copy()
+            if axis != 0:
+                return data[..., l_i:r_i].copy()
+            else:
+                return data[l_i:r_i].copy()
 
 
 class CircularArray:

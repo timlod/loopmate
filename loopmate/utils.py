@@ -373,6 +373,7 @@ class CircularArraySTFT(CircularArray):
 
     def fft(self):
         # Make sure this runs at every update!
+        # Make mono
         bit = self[-self.n_fft :].mean(-1)
         self.stft[:, self.stft_counter] = np.fft.rfft(self.window * bit)
         self.analyze()
@@ -380,10 +381,11 @@ class CircularArraySTFT(CircularArray):
             self.onset_env, slice(-self.tg_win_len, None), self.stft_counter
         )
         n_pad = 2 * self.tg_win_len - 1
-        self.tg[:, self.tg_counter] = np.fft.irfft(
+        tg = np.fft.irfft(
             np.abs(np.fft.rfft(self.tg_window * oe_slice, n=n_pad)) ** 2,
             n=n_pad,
         )[: self.tg_win_len]
+        self.tg[:, self.tg_counter] = tg / (tg.max() + 1e-10)
 
         self.stft_counter += 1
         self.tg_counter += 1

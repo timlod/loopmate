@@ -22,6 +22,16 @@ def resample(x: np.ndarray, sr_source: int, sr_target: int):
     return sig.resample(x, n_target)
 
 
+def tempo_frequencies(n_bins: int, hop_length: int = 256, sr: int = 48000):
+    # From librosa.convert
+    bin_frequencies = np.zeros(int(n_bins), dtype=np.float64)
+
+    bin_frequencies[0] = np.inf
+    bin_frequencies[1:] = 60.0 * sr / (hop_length * np.arange(1.0, n_bins))
+
+    return bin_frequencies
+
+
 @dataclass
 class Metre:
     bpm: float
@@ -295,6 +305,25 @@ class PeakTracker:
             self.relative[i] -= 1
 
 
+def tempo(
+    tg: np.ndarray,
+    hop_length: int = 256,
+    win_length: int = 384,
+    start_bpm: int = 120,
+    std_bpm: float = 1.0,
+    agg=np.mean,
+    sr=48000,
+):
+    # From librosa.feature.rhythm
+    if agg is not None:
+        tg = agg(tg, axis=-1, keepdims=True)
+    bpms = tempo_frequencies(win_length, hop_length, sr=sr)
+    logprior = -0.5 * ((np.log2(bpms) - np.log2(start_bpm)) / std_bpm) ** 2
+    logprior = logprior[:, None]
+    best_period = np.argmax(np.log1p(1e6 * tg) + logprior, axis=-2)
+    return np.take(bpms, best_period)
+
+
 class CircularArraySTFT(CircularArray):
     def __init__(self, N, channels=2, n_fft=2048, hop_length=256, sr=44100):
         super().__init__(N, channels)
@@ -451,14 +480,12 @@ class CircularArraySTFT(CircularArray):
         # start and end are negative
         start_f = samples_to_frames(start)
         end_f = samples_to_frames(end)
-        onset_env = query_circular(
-            self.onset_env, slice(start_f, end_f), self.stft_counter
+        tg = query_circular(
+            self.tg, slice(start_f, end_f), self.tg_counter, axis=-1
         )
         onsets = np.array(self.peaks.relative)
         # onsets = onsets[(onsets >= start_f) & (onsets <= end_f)]
-        _, bpm = estimate_bpm(
-            onset_env, self.sr // self.hop_length, convolve=False
-        )
+        bpm = tempo(tg, hop_length=self.hop_length, win_length=self.tg_win_len)
         print(bpm)
         beat_len = (self.sr // self.hop_length) // (bpm / 60)
         start_diff = np.abs(onsets - start_f)

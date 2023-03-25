@@ -10,6 +10,21 @@ import soundfile as sf
 from scipy import signal as sig
 
 
+def frames_to_samples(frames: np.ndarray, hop_length: int = 256) -> np.ndarray:
+    """Convert frame index to sample index.
+
+    :param frames: array containing frame indices.
+    :param hop_length: hop_length of the STFT
+    """
+    return frames * hop_length
+
+
+def samples_to_frames(
+    samples: np.ndarray, hop_length: int = 256
+) -> np.ndarray:
+    return samples // hop_length
+
+
 def resample(x: np.ndarray, sr_source: int, sr_target: int):
     """Resample signal to target samplerate
 

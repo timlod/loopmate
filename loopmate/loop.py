@@ -9,8 +9,8 @@ import sounddevice as sd
 from scipy import signal as sig
 
 from loopmate import config
-from loopmate.actions import Actions, Start, Stop
-from loopmate.utils import CircularArray, StreamTime
+from loopmate.actions import Actions, Sample, Start, Stop
+from loopmate.utils import CLAVE, CircularArray, StreamTime
 
 blend_windowsize = round(config.blend_length * config.sr)
 RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]

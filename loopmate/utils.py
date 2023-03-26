@@ -9,6 +9,9 @@ import scipy as sp
 import soundfile as sf
 from scipy import signal as sig
 
+CLAVE, MSR = sf.read("../data/clave.wav", dtype=np.float32)
+CLAVE = CLAVE[:, None]
+
 
 def frames_to_samples(frames: np.ndarray, hop_length: int = 256) -> np.ndarray:
     """Convert frame index to sample index.
@@ -58,11 +61,12 @@ class Metre:
         return self.bpm / 60
 
     def get_metronome(self, sr: int):
-        clave, msr = sf.read("../data/clave.wav", dtype=np.float32)
-        if sr != msr:
-            clave = resample(clave, msr, sr)
+        if sr != MSR:
+            clave = resample(CLAVE, MSR, sr)
+        else:
+            clave = CLAVE
         beat = int(sr / self.bps)
-        out = np.zeros(int(beat * self.beats), dtype=np.float32)
+        out = np.zeros((int(beat * self.beats), 1), dtype=np.float32)
         for i in range(self.beats):
             out[i * beat : i * beat + len(clave)] = clave
         return out

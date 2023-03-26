@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import asyncio
+import threading
 import time
+from multiprocessing import Condition, Event, Process
 
 import mido
 import numpy as np
@@ -9,29 +10,29 @@ import pedalboard
 import sounddevice as sd
 import soundfile as sf
 
-from loopmate import config
+from loopmate import config, utils
 from loopmate.actions import (
     BackCaptureTrigger,
+    Effect,
     Mute,
     MuteTrigger,
     RecordTrigger,
 )
 from loopmate.loop import Audio, ExtraOutput, Loop
 
+delay = pedalboard.Delay(0.8, 0.4, 0.3)
+
 
 class MidiQueue:
-    def __init__(self, queue, loop):
-        self.queue = queue
+    def __init__(self, loop):
         self.loop = loop
-        # self.aioloop = aioloop
         self.port = mido.open_input(callback=self.receive)
 
     def receive(self, message):
+        gain = 1.0
         if message.type == "note_on":
             t = time.time()
-            # self.aioloop.call_soon_threadsafe(self.queue.put_nowait(message))
             print(time.time() - t)
-            # self.queue.task_done()
             if message.note == 25:
                 self.loop.start()
             elif message.note == 35:
@@ -52,18 +53,15 @@ class MidiQueue:
             elif message.note == 47:
                 self.loop.record()
             elif message.note == 57:
+                n = self.loop.anchor.loop_length
                 when = (
-                    self.loop.anchor.loop_length
-                    - round(self.loop.callback_time.output_delay * config.sr)
+                    n - round(self.loop.callback_time.output_delay * config.sr)
                 ) % self.loop.anchor.loop_length
                 self.loop.actions.actions.append(
-                    RecordTrigger(
-                        when,
-                        self.loop.anchor.loop_length,
-                        spawn=RecordTrigger(
-                            when, self.loop.anchor.loop_length
-                        ),
-                    )
+                    RecordTrigger(when, n, spawn=RecordTrigger(when, n))
+                )
+                self.loop.actions.actions.append(
+                    MuteTrigger(when, n, spawn=MuteTrigger(when, n))
                 )
                 print(self.loop.actions.actions)
             elif message.note == 30:
@@ -76,6 +74,18 @@ class MidiQueue:
                 self.loop.backcapture(1)
             elif message.note == 43:
                 self.loop.measure_air_delay()
+            elif message.note == 50:
+                self.loop.audios[-1].audio *= 1.2
+            elif message.note == 52:
+                self.loop.audios[-1].audio *= 0.8
+            elif message.note == 55:
+                self.loop.audios[-1].reset_audio()
+            elif message.note == 53:
+                self.loop.audios[-1].audio = delay(
+                    self.loop.audios[-1].audio, config.sr, reset=False
+                )
+
+
 
 
 async def main(aioloop):

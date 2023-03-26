@@ -181,7 +181,7 @@ class CircularArray:
             array of loop_length for sample storage to avoid extra memory
             copies.
         """
-        return query_circular(self.data, i, self.write_counter, out)
+        return query_circular(self.data, i, int(self.write_counter), out)
 
     def __getitem__(self, i):
         """Get samples from this array. This returns a copy.
@@ -677,6 +677,9 @@ class SharedInt:
         return self.value > other
 
     def __index__(self):
+        return self.value
+
+    def __int__(self):
         return self.value
 
     def __str__(self):

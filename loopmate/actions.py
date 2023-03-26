@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import queue
 from collections import deque
 from dataclasses import KW_ONLY, dataclass, field
@@ -271,7 +270,7 @@ class Trigger:
                 self.consumed = True
 
     def do(self, actions):
-        pass
+        actions.plans.put_nowait(self)
 
     def __lt__(self, other):
         return self.priority < other.priority
@@ -317,31 +316,20 @@ class RecordTrigger(Trigger):
     def __init__(self, when, loop_length, **kwargs):
         super().__init__(when, loop_length, **kwargs)
 
-    def do(self, actions):
-        actions.aioloop.call_soon_threadsafe(
-            lambda: actions.plans.put_nowait(self)
-        )
-
 
 class BackCaptureTrigger(Trigger):
     def __init__(self, when, loop_length, n_loops=1, **kwargs):
         super().__init__(when, loop_length, **kwargs)
         self.n_loops = n_loops
 
-    def do(self, actions):
-        actions.aioloop.call_soon_threadsafe(
-            lambda: actions.plans.put_nowait(self)
-        )
-
 
 @dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
-    aioloop: Any
     max: int = 20
     actions: list = field(default_factory=deque)
     active: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
-    plans: asyncio.PriorityQueue = field(default_factory=asyncio.PriorityQueue)
+    plans: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
 
     def append(self, action: Action | Trigger):
         self.actions.append(action)

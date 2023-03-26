@@ -96,7 +96,8 @@ class Audio:
 
 
 class Loop:
-    def __init__(self, anchor: Audio | None = None):
+    def __init__(self, anchor: Audio | None = None, mp_cond=None):
+        self.mp_cond = mp_cond
         self.audios = []
         self.new_audios = queue.Queue()
         self.anchor = anchor
@@ -107,6 +108,8 @@ class Loop:
         self.recent_audio = CircularArray(
             config.sr * config.max_recording_length, config.channels
         )
+        self.recent_audio.make_shared()
+
         self.recording = None
 
         # Global actions applied to fully mixed audio
@@ -182,6 +185,9 @@ class Loop:
                 0 if self.anchor is None else self.anchor.current_frame
             )
             self.actions.run(outdata, current_frame, next_frame)
+            # Notify whenever we finished one iteration
+            with self.mp_cond:
+                self.mp_cond.notify()
 
         return callback
 

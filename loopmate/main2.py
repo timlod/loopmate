@@ -110,59 +110,40 @@ def analyze(arr, stop_event, cond):
         raise e
 
 
-async def main(aioloop):
+if __name__ == "__main__":
+    sa = utils.CircularArraySTFT(
+        config.sr * config.max_recording_length, config.channels
+    )
+    sa.make_shared(create=True)
+    se = Event()
+    cond = Condition()
+    ap = Process(target=analyze, args=(sa, se, cond))
+    ap.start()
+    print("started")
+    print(sa)
+
     print(sd.query_devices())
     piano, _ = sf.read("../data/piano.wav", dtype=np.float32)
     clave, _ = sf.read("../data/clave.wav", dtype=np.float32)
-    print(clave.shape)
     clave = np.concatenate(
         (
             1 * clave[:, None],
             np.zeros((config.sr - len(clave), 1), dtype=np.float32),
         )
     )
-    # loop = Loop(Audio(piano))
-    loop = Loop(Audio(clave), aioloop)
+    loop = Loop(Audio(clave), cond)
     loop.start()
-    hl = ExtraOutput(loop)
-    # loop = Loop()
+    # hl = ExtraOutput(loop)
+
     print(loop)
 
-    # TODO: plan!
     ps = pedalboard.PitchShift(semitones=-6)
     ds = pedalboard.Distortion(drive_db=20)
     delay = pedalboard.Delay(0.8, 0.1, 0.3)
+    limiter = pedalboard.Limiter()
+    loop.actions.append(Effect(0, 10000000, lambda x: limiter(x, config.sr)))
 
-    cq = asyncio.Queue()
+    midi = MidiQueue(loop)
 
-    midi = MidiQueue(cq, loop)
-
-    try:
-        go = True
-        while go:
-            # print(cq.qsize())
-            trigger = await loop.actions.plans.get()
-            # trigger = asyncio.run_coroutine_threadsafe(
-            #     loop.actions.plans.get(), aioloop
-            # ).result()
-            if isinstance(trigger, RecordTrigger):
-                print(f"\rgot record in main")
-                loop.record()
-                continue
-            elif isinstance(trigger, BackCaptureTrigger):
-                loop.backcapture(trigger.n_loops)
-                continue
-    except (sd.CallbackStop, sd.CallbackAbort):
-        print("Stopped")
-
-
-if __name__ == "__main__":
-    aioloop = asyncio.get_event_loop()
-    aioloop.run_until_complete(main(aioloop))
-
-    # root = Tk()
-    # frm = ttk.Frame(root, padding=10)
-    # frm.grid()
-    # ttk.Label(frm, text="Hello World!").grid(column=0, row=0)
-    # ttk.Button(frm, text="Quit", command=root.destroy).grid(column=1, row=0)
-    # root.mainloop()
+    plan_thread = threading.Thread(target=plan_callback, args=(loop,))
+    plan_thread.start()

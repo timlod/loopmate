@@ -86,6 +86,28 @@ class MidiQueue:
                 )
 
 
+def plan_callback(loop):
+    while True:
+        trigger = loop.actions.plans.get()
+        if isinstance(trigger, RecordTrigger):
+            print("Record in plan_callback")
+            loop.record()
+            continue
+        elif isinstance(trigger, BackCaptureTrigger):
+            loop.backcapture(trigger.n_loops)
+            continue
+
+
+def analyze(arr, stop_event, cond):
+    try:
+        with cond:
+            while not stop_event.is_set():
+                cond.wait()
+                arr.fft()
+    except Exception as e:
+        print("stopped sharing")
+        arr.stop_sharing()
+        raise e
 
 
 async def main(aioloop):

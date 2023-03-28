@@ -262,33 +262,33 @@ class EMA_MinMaxTracker:
         self,
         alpha=0.0001,
         eps=1e-10,
-        min0=0,
+        min0=0.0,
         max0=-np.inf,
         minmin=-np.inf,
         minmax=-np.inf,
     ):
-        self.alpha = alpha
-        self.ialpha = 1 - alpha
-        self.eps = eps
-        self.min_val = min0
-        self.max_val = max0
-        self.minmin = minmin
-        self.minmax = minmax
+        self.alpha = np.float32(alpha)
+        self.ialpha = np.float32(1.0 - alpha)
+        self.eps = np.float32(eps)
+        self.min_val = np.float32(min0)
+        self.max_val = np.float32(max0)
+        self.minmin = np.float32(minmin)
+        self.minmax = np.float32(minmax)
 
     def add_sample(self, sample):
         # Update min_val and max_val using exponential moving average
         # sample = abs(sample)
-        if sample < self.min_val:
+        if sample < self.minmin:
+            self.min_val = self.minmin
+        elif sample < self.min_val:
             self.min_val = sample
-        elif sample < self.minmin:
-            pass
         else:
             self.min_val = self.min_val * self.ialpha + sample * self.alpha
 
-        if sample > self.max_val:
+        if sample < self.minmax:
+            self.max_val = self.minmax
+        elif sample > self.max_val:
             self.max_val = sample
-        elif sample < self.minmax:
-            pass
         else:
             self.max_val = self.max_val * self.ialpha + sample * self.alpha
 
@@ -359,7 +359,7 @@ class CircularArraySTFT(CircularArray):
         self.stft_counter = 0
         self.n_fft = n_fft
         self.hop_length = hop_length
-        self.window = sig.windows.hann(n_fft)
+        self.window = sig.windows.hann(n_fft).astype(np.float32)
         self.sr = sr
 
         # Onset tracking vars
@@ -368,7 +368,7 @@ class CircularArraySTFT(CircularArray):
         )
         self.tg_win_len = 384
         self.tg_pad = 2 * self.tg_win_len - 1
-        self.tg_window = sig.windows.hann(self.tg_win_len)
+        self.tg_window = sig.windows.hann(self.tg_win_len).astype(np.float32)
         self.tg = np.zeros(
             (self.tg_win_len, len(self.onset_env)),
             dtype=np.float32,

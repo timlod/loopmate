@@ -325,7 +325,7 @@ class PeakTracker:
 
 
 def magsquared(x):
-    return np.real(x) ** 2 + np.imag(x) ** 2
+    return x.real**2 + x.imag**2
 
 
 def tempo(

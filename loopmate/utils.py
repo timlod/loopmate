@@ -301,21 +301,27 @@ class PeakTracker:
     def __init__(self, N, offset=0):
         self.N = N
         self.absolute = deque()
-        self.relative = deque()
         self.current_step = 0
         self.offset = offset
 
     def add_element(self):
-        self.absolute.append(self.current_step)
-        self.relative.append(self.offset)
+        self.absolute.append(self.current_step - self.offset)
 
-    def decrement(self):
-        self.current_step -= 1
+    def step(self):
+        self.current_step += 1
         while self.absolute and self.absolute[0] - self.N > self.current_step:
             self.absolute.popleft()
-            self.relative.popleft()
-        for i in range(len(self.relative)):
-            self.relative[i] -= 1
+
+    @property
+    def last(self):
+        if self.absolute:
+            return self.absolute[-1] - self.current_step
+        else:
+            return -100000
+
+    @property
+    def peaks(self):
+        return np.array(self.absolute) - self.current_step
 
 
 def magsquared(x):
@@ -395,9 +401,9 @@ class CircularArraySTFT(CircularArray):
         self.delta = 0.07
 
         offset = (
-            -self.avg_offset
+            self.avg_offset
             if self.avg_offset > self.max_offset
-            else -self.max_offset
+            else self.max_offset
         )
         self.peaks = PeakTracker(self.N_stft, offset)
 
@@ -487,14 +493,11 @@ class CircularArraySTFT(CircularArray):
         )
         detect *= detect >= self.mov_avg[cur] + self.delta
         if detect:
-            last_onset = (
-                self.peaks.relative[-1] if self.peaks.relative else -100
-            )
-            if -self.avg_offset > last_onset + self.wait:
+            if -self.avg_offset > self.peaks.last + self.wait:
                 # Found an onset
                 self.peaks.add_element()
 
-        self.peaks.decrement()
+        self.peaks.step()
 
     def bpm_quantize(self, start, end):
         # start and end are negative

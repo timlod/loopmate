@@ -373,7 +373,6 @@ class CircularArraySTFT(CircularArray):
             (self.tg_win_len, len(self.onset_env)),
             dtype=np.float32,
         )
-        self.tg_counter = 0
         self.onset_env_minmax = EMA_MinMaxTracker(
             min0=0, minmin=0, max0=1, alpha=0.001
         )
@@ -504,7 +503,7 @@ class CircularArraySTFT(CircularArray):
         start_f = samples_to_frames(start)
         end_f = samples_to_frames(end)
         tg = query_circular(
-            self.tg, slice(start_f, end_f), self.tg_counter, axis=-1
+            self.tg, slice(start_f, end_f), self.stft_counter, axis=-1
         )
         onsets = np.array(self.peaks.relative)
         # onsets = onsets[(onsets >= start_f) & (onsets <= end_f)]

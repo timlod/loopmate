@@ -268,6 +268,7 @@ class EMA_MinMaxTracker:
         minmax=-np.inf,
     ):
         self.alpha = alpha
+        self.ialpha = 1 - alpha
         self.eps = eps
         self.min_val = min0
         self.max_val = max0
@@ -278,27 +279,20 @@ class EMA_MinMaxTracker:
         # Update min_val and max_val using exponential moving average
         # sample = abs(sample)
         if sample < self.min_val:
-            # print(f"new min: {sample}")
             self.min_val = sample
         elif sample < self.minmin:
             pass
         else:
-            self.min_val = (
-                self.min_val * (1 - self.alpha) + sample * self.alpha
-            )
+            self.min_val = self.min_val * self.ialpha + sample * self.alpha
 
         if sample > self.max_val:
             self.max_val = sample
         elif sample < self.minmax:
             pass
         else:
-            self.max_val = (
-                self.max_val * (1 - self.alpha) + sample * self.alpha
-            )
+            self.max_val = self.max_val * self.ialpha + sample * self.alpha
 
     def normalize_sample(self, sample):
-        if self.max_val == self.min_val:
-            return 0  # Avoid division by zero
         sample -= self.min_val
         return sample / (self.max_val + self.eps)
 

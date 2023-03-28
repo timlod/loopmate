@@ -548,6 +548,7 @@ class CircularArraySTFT(CircularArray):
             end_move = ps_diff[i]
         else:
             end_move = 0
+        return start_f, start_move, end_f, end_move
 
     def write(self, arr):
         super().write(arr)

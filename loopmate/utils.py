@@ -318,6 +318,10 @@ class PeakTracker:
             self.relative[i] -= 1
 
 
+def magsquared(x):
+    return np.real(x) ** 2 + np.imag(x) ** 2
+
+
 def tempo(
     tg: np.ndarray,
     hop_length: int = 256,
@@ -346,7 +350,6 @@ class CircularArraySTFT(CircularArray):
             dtype=np.complex64,
         )
 
-        self.c = 0
         self.stft_counter = 0
         self.n_fft = n_fft
         self.hop_length = hop_length
@@ -358,6 +361,7 @@ class CircularArraySTFT(CircularArray):
             int(np.ceil(N / hop_length)), dtype=np.float32
         )
         self.tg_win_len = 384
+        self.tg_pad = 2 * self.tg_win_len - 1
         self.tg_window = sig.windows.hann(self.tg_win_len)
         self.tg = np.zeros(
             (self.tg_win_len, len(self.onset_env)),
@@ -415,31 +419,35 @@ class CircularArraySTFT(CircularArray):
 
     def fft(self):
         # Make sure this runs at every update!
-        # Make mono
-        bit = self[-self.n_fft :].mean(-1)
-        self.stft[:, self.stft_counter] = np.fft.rfft(self.window * bit)
-        self.analyze()
+
+        # TODO: If this starts lagging, make sure we don't just ignore
+        # segments, but transform everything since this was last called
+        # To do that, we'd have to vectorize this, which adds complexity :/
+        # Better to just optimize it such that it runs quickly
+        self.stft[:, self.stft_counter] = np.fft.rfft(
+            self.window * self[-self.n_fft :].mean(-1)
+        )
+        self.detect_onsets()
+        self.tempogram()
+        self.stft_counter += 1
+        if self.stft_counter >= self.stft.shape[1]:
+            self.stft_counter = 0
+        # print(f"{self.stft_counter=}")
+
+    def tempogram(self):
         oe_slice = query_circular(
             self.onset_env, slice(-self.tg_win_len, None), self.stft_counter
         )
-        n_pad = 2 * self.tg_win_len - 1
         tg = np.fft.irfft(
-            np.abs(np.fft.rfft(self.tg_window * oe_slice, n=n_pad)) ** 2,
-            n=n_pad,
+            magsquared(np.fft.rfft(self.tg_window * oe_slice, n=self.tg_pad)),
+            n=self.tg_pad,
         )[: self.tg_win_len]
-        self.tg[:, self.tg_counter] = tg / (tg.max() + 1e-10)
+        self.tg[:, self.stft_counter] = tg / (tg.max() + 1e-10)
 
-        self.stft_counter += 1
-        self.tg_counter += 1
-        if self.stft_counter >= self.stft.shape[1]:
-            self.stft_counter = 0
-        if self.tg_counter >= self.tg.shape[1]:
-            self.tg_counter = 0
-
-    def analyze(self):
+    def detect_onsets(self):
         # Potentially move over to fft
-        mag = np.abs(self.stft[:, self.stft_counter]) ** 2
-        magm1 = np.abs(self.stft[:, self.index_offset_stft(-1)]) ** 2
+        mag = magsquared(self.stft[:, self.stft_counter])
+        magm1 = magsquared(self.stft[:, self.index_offset_stft(-1)])
         # Convert to DB
         s = 10.0 * np.log10(np.maximum(1e-10, mag))
         self.logspec_minmax.add_sample(s.max())
@@ -449,11 +457,11 @@ class CircularArraySTFT(CircularArray):
         # Aggregate frequencies
         onset_env = np.maximum(0.0, s - sm1).mean()
 
-        # Normalize
+        # Normalize and add to self
         self.onset_env_minmax.add_sample(onset_env)
-        onset_env = self.onset_env_minmax.normalize_sample(onset_env)
-
-        self.onset_env[self.stft_counter] = onset_env
+        self.onset_env[
+            self.stft_counter
+        ] = self.onset_env_minmax.normalize_sample(onset_env)
 
         mov_max_cur = self.index_offset_stft(-self.max_offset)
         self.mov_max[mov_max_cur] = np.max(
@@ -479,7 +487,6 @@ class CircularArraySTFT(CircularArray):
         )
         detect *= detect >= self.mov_avg[cur] + self.delta
         if detect:
-            self.c += 1
             last_onset = (
                 self.peaks.relative[-1] if self.peaks.relative else -100
             )

@@ -10,7 +10,7 @@ import pedalboard
 import sounddevice as sd
 import soundfile as sf
 
-from loopmate import config, utils
+from loopmate import circular_array, config, utils
 from loopmate.actions import (
     BackCaptureTrigger,
     Effect,
@@ -111,7 +111,7 @@ def analyze(arr, stop_event, cond):
 
 
 if __name__ == "__main__":
-    sa = utils.CircularArraySTFT(
+    sa = circular_array.CircularArraySTFT(
         config.sr * config.max_recording_length, config.channels
     )
     sa.make_shared(create=True)

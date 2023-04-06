@@ -217,6 +217,7 @@ class Loop:
                 self.anchor.loop_length if self.anchor is not None else None,
             )
         else:
+            # If no loop, use bpm quantization
             print("REC FINISH")
             audio = self.recording.finish(t, self.callback_time)
             if audio is None:
@@ -243,6 +244,11 @@ class Loop:
         audio = recording.finish(t, self.callback_time)
         self.add_track(audio)
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
+
+    def last_sound(self, min_db, cut_db):
+        # Backtrack to last onset, get everything since that onset (louder than
+        # min_db) and when that sound went lower than a db cutoff (cut_db)
+        pass
 
     def measure_air_delay(self):
         """

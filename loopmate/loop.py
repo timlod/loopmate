@@ -378,7 +378,7 @@ class Recording:
             if reference_frame > loop_length:
                 reference_frame -= loop_length
             self.start_frame, move = quantize(
-                reference_frame, self.loop_length, lenience=lenience
+                reference_frame, loop_length, lenience=lenience
             )
             print(
                 f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"

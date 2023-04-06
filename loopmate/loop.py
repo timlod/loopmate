@@ -14,7 +14,7 @@ from loopmate.circular_array import CircularArray
 from loopmate.utils import CLAVE, StreamTime
 
 RAMP = np.linspace(1, 0, config.blend_frames, dtype=np.float32)[:, None]
-POP_WINDOW = sig.windows.hann(int(config.sr * config.blend_length))[:, None]
+POP_WINDOW = sig.windows.hann(config.blend_frames)[:, None]
 
 # TODO: BPM sync & metronome anchor
 

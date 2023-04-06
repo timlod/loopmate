@@ -51,6 +51,12 @@ class MidiQueue:
                 if len(self.loop.audios) == 0:
                     self.loop.anchor = None
             elif message.note == 47:
+                if self.loop.anchor is None:
+                    bpm_quant = True
+                else:
+                    bpm_quant = False
+                # Record should probably take start/end frames optionally as
+                # input which could come from bpm quantization
                 self.loop.record()
             elif message.note == 57:
                 n = self.loop.anchor.loop_length

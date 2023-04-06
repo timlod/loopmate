@@ -11,7 +11,7 @@ from loopmate.utils import (
     SharedInt,
     magsquared,
     samples_to_frames,
-    tempo,
+    tempo_frequencies,
 )
 
 
@@ -226,6 +226,11 @@ class CircularArraySTFT(CircularArray):
         )
         self.peaks = PeakTracker(self.N_stft, offset)
 
+        self.tf = tempo_frequencies(self.tg_win_len, hop_length, sr=sr)
+        self.bpm_logprior = (
+            -0.5 * ((np.log2(self.tf) - np.log2(100)) / 1.0) ** 2
+        )[:, None]
+
     def index_offset_stft(self, offset: Union[int, np.ndarray]):
         if isinstance(offset, np.ndarray):
             i = self.stft_counter + offset
@@ -268,6 +273,15 @@ class CircularArraySTFT(CircularArray):
             n=self.tg_pad,
         )[: self.tg_win_len]
         self.tg[:, self.stft_counter] = tg / (tg.max() + 1e-10)
+
+    def tempo(self, tg, agg=np.mean):
+        # From librosa.feature.rhythm
+        if agg is not None:
+            tg = agg(tg, axis=-1, keepdims=True)
+        best_period = np.argmax(
+            np.log1p(1e6 * tg) + self.bpm_logprior, axis=-2
+        )
+        return np.take(self.tf, best_period)
 
     def detect_onsets(self):
         # Potentially move over to fft
@@ -327,7 +341,8 @@ class CircularArraySTFT(CircularArray):
         )
         onsets = np.array(self.peaks.relative)
         # onsets = onsets[(onsets >= start_f) & (onsets <= end_f)]
-        bpm = tempo(tg, hop_length=self.hop_length, win_length=self.tg_win_len)
+        # TODO: Perhaps allow for tempo to change slightly? maybe not
+        bpm = self.tempo(tg)
         print(bpm)
         beat_len = (self.sr // self.hop_length) // (bpm / 60)
         start_diff = np.abs(onsets - start_f)

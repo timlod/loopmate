@@ -258,7 +258,7 @@ class Loop:
         Returns the air delay in number of samples.
         """
         ll = 0 if self.anchor is None else self.anchor.loop_length
-        self.actions.append(Sample(CLAVE, ll, 0.5))
+        self.actions.append(Sample(CLAVE, ll, 1.5))
         at_sample = self.recent_audio.counter
         indelay_frames = round(self.callback_time.input_delay * config.sr)
         wait_for = (

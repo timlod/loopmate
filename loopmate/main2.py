@@ -86,7 +86,7 @@ class MidiQueue:
                 )
 
 
-def plan_callback(loop):
+def plan_callback(loop: Loop):
     while True:
         trigger = loop.actions.plans.get()
         if isinstance(trigger, RecordTrigger):
@@ -98,11 +98,11 @@ def plan_callback(loop):
             continue
 
 
-def analyze(arr, stop_event, cond):
+def analyze(arr: circular_array.CircularArraySTFT, stop_event, run_stft_cond):
     try:
-        with cond:
+        with run_stft_cond:
             while not stop_event.is_set():
-                cond.wait()
+                run_stft_cond.wait()
                 arr.fft()
     except Exception as e:
         print("stopped sharing")
@@ -116,8 +116,8 @@ if __name__ == "__main__":
     )
     sa.make_shared(create=True)
     se = Event()
-    cond = Condition()
-    ap = Process(target=analyze, args=(sa, se, cond))
+    run_stft_cond = Condition()
+    ap = Process(target=analyze, args=(sa, se, run_stft_cond))
     ap.start()
     print("started")
     print(sa)
@@ -131,7 +131,7 @@ if __name__ == "__main__":
             np.zeros((config.sr - len(clave), 1), dtype=np.float32),
         )
     )
-    loop = Loop(Audio(clave), cond)
+    loop = Loop(Audio(clave), run_stft_cond)
     loop.start()
     # hl = ExtraOutput(loop)
 

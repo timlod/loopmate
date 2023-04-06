@@ -349,7 +349,9 @@ class Recording:
         self.lenience = lenience
         # Between pressing and the time the last callback happened are this
         # many frames
-        frames_since = round(callback_time.timediff(start_time) * config.sr)
+        self.rec_start, frames_since = self.recording_event(
+            callback_time, start_time
+        )
 
         # Our reference will be the the frame indata_at which a press was
         # registered, which is the frame indata_at callback time plus the
@@ -365,15 +367,10 @@ class Recording:
                 + round(callback_time.output_delay * config.sr)
             )
 
-        self.rec_start = (
-            rec.counter
-            + frames_since
-            + round(callback_time.input_delay * config.sr)
-        )
-
         # Quantize to loop_length if it exists
         if loop_length is not None:
             self.loop_length = loop_length
+            # Wrap around if we shifted beyond loop_length
             if reference_frame > loop_length:
                 reference_frame -= loop_length
             self.start_frame, move = quantize(
@@ -389,15 +386,26 @@ class Recording:
 
         self.rec = rec
 
-    def finish(self, t, callback_time):
-        # Between pressing and the time the last callback happened are this
-        # many frames
+    def recording_event(
+        self, callback_time: StreamTime, t: float
+    ) -> (int, int):
+        """Return frame in rec that aligns with time t, as well as the number
+        of frames that passed since callback_time.
+
+        :param callback_time: StreamTime of the current callback
+        :param t: sd.Stream.time to compute the frame for
+        """
         frames_since = round(callback_time.timediff(t) * config.sr)
-        self.rec_stop = (
+        return (
             self.rec.counter
             + frames_since
             + round(callback_time.input_delay * config.sr)
-        )
+        ), frames_since
+
+    def finish(self, t, callback_time):
+        # Between pressing and the time the last callback happened are this
+        # many frames
+        self.rec_stop, _ = self.recording_event(callback_time, t)
 
         n = self.rec_stop - self.rec_start
         if self.loop_length is not None:

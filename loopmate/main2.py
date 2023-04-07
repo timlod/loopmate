@@ -104,7 +104,7 @@ def plan_callback(loop: Loop):
             continue
 
 
-def analyze(arr: circular_array.CircularArraySTFT, stop_event, run_stft_cond):
+def stft(arr: circular_array.CircularArraySTFT, stop_event, run_stft_cond):
     try:
         with run_stft_cond:
             while not stop_event.is_set():
@@ -116,6 +116,14 @@ def analyze(arr: circular_array.CircularArraySTFT, stop_event, run_stft_cond):
         raise e
 
 
+def analysis_callback(loop: Loop):
+    while True:
+        trigger = loop.actions.aq.get()
+        # Check for different triggers here
+        # Think about how to return results back to main thread in a good way
+        # There probably
+
+
 if __name__ == "__main__":
     sa = circular_array.CircularArraySTFT(
         config.sr * config.max_recording_length, config.channels
@@ -123,7 +131,7 @@ if __name__ == "__main__":
     sa.make_shared(create=True)
     se = Event()
     run_stft_cond = Condition()
-    ap = Process(target=analyze, args=(sa, se, run_stft_cond))
+    ap = Process(target=stft, args=(sa, se, run_stft_cond))
     ap.start()
     print("started")
     print(sa)

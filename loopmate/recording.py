@@ -1,150 +1,454 @@
 from __future__ import annotations
 
+import ctypes
+from multiprocessing.shared_memory import SharedMemory
+from typing import Optional, Union
+
 import numpy as np
 import sounddevice as sd
 from scipy import signal as sig
 
 from loopmate import config
 from loopmate.loop import Audio
-from loopmate.utils import CircularArray, StreamTime
-
-RAMP = np.linspace(1, 0, config.blend_frames, dtype=np.float32)[:, None]
-POP_WINDOW = sig.windows.hann(config.blend_frames)[:, None]
-# TODO: If there are added/dropped frames during recording, may have to
-# account for them
+from loopmate.utils import (
+    EMA_MinMaxTracker,
+    PeakTracker,
+    SharedInt,
+    StreamTime,
+    magsquared,
+    query_circular,
+    samples_to_frames,
+    tempo_frequencies,
+)
 
 
 class Recording:
-    def __init__(
-        self,
-        rec: CircularArray,
-        callback_time: StreamTime,
-        start_time: float,
-        loop_length: int | None = None,
-    ):
-        # Between pressing and the time the last callback happened are this
-        # many frames
-        frames_since = round(callback_time.timediff(start_time) * config.sr)
+    """
+    Class that encapsulates several actions which can be performed on recorded
+    audio, stored in a circular array.
 
-        # Our reference will be the the frame indata_at which a press was
-        # registered, which is the frame indata_at callback time plus the
-        # frames elapsed since and the (negative) output delay, which
-        # represents difference in time between buffering a sample and the
-        # sample being passed into the DAC
-        if loop_length is None:
-            reference_frame = 0
-        else:
-            reference_frame = (
-                callback_time.frame
-                + frames_since
-                + round(callback_time.output_delay * config.sr)
-            )
+    Allow multiple recordings at the same time by means of dicts?
+    """
 
-        self.rec_start = (
-            rec.counter
-            + frames_since
-            + round(callback_time.input_delay * config.sr)
-        )
-
-        # Quantize to loop_length if it exists
-        if loop_length is not None:
-            self.loop_length = loop_length
-            if reference_frame > loop_length:
-                reference_frame -= loop_length
-            self.start_frame, move = self.quantize(reference_frame)
-            print(
-                f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
-            )
-            self.rec_start += move
-        else:
-            self.start_frame = 0
-            self.loop_length = None
-
+    def __init__(self, rec, loop_length=None):
         self.rec = rec
+        # Flag to signal whether we should be recording
+        self.started = False
+        self.loop_length = loop_length
 
-    def finish(self, t, callback_time):
-        # Between pressing and the time the last callback happened are this
-        # many frames
+    def start(self, callback_time, t):
+        self.rec_start, frames_since = self.recording_event(callback_time, t)
+
+    def stft(self):
+        # Method to run inside AP1
+        self.rec.fft()
+
+    def recording_event(
+        self, callback_time: StreamTime, t: float
+    ) -> (int, int):
+        """Return frame in rec that aligns with time t, as well as the number
+        of frames that passed since callback_time.
+
+        :param callback_time: StreamTime of the current callback
+        :param t: sd.Stream.time to compute the frame for
+        """
         frames_since = round(callback_time.timediff(t) * config.sr)
-        self.rec_stop = (
+        return (
             self.rec.counter
             + frames_since
             + round(callback_time.input_delay * config.sr)
+        ), frames_since
+
+
+def channels_to_int(channels: tuple) -> int:
+    """Map a recording channel mapping to an integer.  Supports at most 8
+    concurrent channels, where the maximum channel index is 254.
+
+    Uses a 64 bit integer to encode channel numbers, using every byte to encode
+    one channel.  If we don't add 1, we will miss the zeroth channel for
+    configurations like (0, 1), (0, 4), etc., which will be very common.
+
+    :param channels: sequence of channel numbers to map
+    """
+    assert len(channels) <= 8, "There can be at most 8 channels"
+
+    result = 0
+    for channel in channels:
+        assert channel < 255, "Channel numbers must be at most 254!"
+        result <<= 8  # Make room for the next channel number (8 bits)
+        result |= channel + 1
+    return result
+
+
+def int_to_channels(value: int) -> list[int]:
+    """Maps the output of channels_to_int back into a list of channel numbers.
+
+    Starts reading the last 8 bits of the int64 and shifts one byte to the
+    right as long as the result is not 0.
+
+    :param value: integer output of channels_to_int
+    """
+    channels = []
+    while value > 0:
+        channel = value & 0xFF  # Extract the least significant 8 bits
+        channels.insert(0, channel - 1)
+        value >>= 8  # Shift the value to the right by 8 bits
+    return channels
+
+
+def make_recording_struct(N, channels, int_type=ctypes.c_int64):
+    class CRecording(ctypes.Structure):
+        _fields_ = [
+            ### Everything before write_counter is used for IPC
+            # Flag to trigger stft
+            ("do_stft", ctypes.c_bool),
+            ## Indicate to analysis thread that an action should be performed
+            # Number of recording (to allow for multiple simultaneous
+            # recordings)
+            ("recording_number", int_type),
+            # Channels to record (see channels_to_int)
+            ("record_channels", int_type),
+            # Start index counter
+            ("recording_start", int_type),
+            # End index counter
+            ("recording_end", int_type),
+            # Flag to indicate that analysis thread has completed
+            # Potentially just use the integer and have 0 signal not ready
+            ("result_ready", ctypes.c_bool),
+            # Type of result that can be taken
+            ("result_type", ctypes.int_type),
+            ("write_counter", int_type),
+            ("counter", int_type),
+            ("data", ctypes.c_float * (N * channels)),
+        ]
+
+    return CRecording
+
+
+class CircularArray:
+    """
+    Simple implementation of an array which can be indexed and written to in a
+    wrap-around fashion.
+    """
+
+    def __init__(self, N, channels=2):
+        self.data = np.zeros((N, channels), dtype=np.float32)
+        self.N = N
+        self.write_counter = 0
+        # Use to compute differences in samples between two points in time
+        self.counter = 0
+
+        # Extra details to take note of through shared memory:
+        # most recent onset frame?
+        # best closest starting/end frame given beat quantization?
+        # what else?
+        # pack this up in a ctypes struct
+
+    def query(self, i: slice, out=None):
+        """Return n samples.  Note: returns a copy of the requested data
+        (unless we specify the output array, in which case it writes a copy
+        into it)!
+
+        :param i: slice of samples to return.  Needs to satisfy -self.N < start
+                  < stop <= 0.  Ignores slice step.
+        :param out: array to place the samples into.  Can be used to re-use an
+            array of loop_length for sample storage to avoid extra memory
+            copies.
+        """
+        return query_circular(self.data, i, int(self.write_counter), out)
+
+    def __getitem__(self, i):
+        """Get samples from this array. This returns a copy.
+
+        :param i: slice satisfying -self.N < start < stop <= 0. Can't use step.
+        """
+        return self.query(i)
+
+    def index_offset(self, offset):
+        if (i := self.write_counter + offset) > self.N:
+            return i % self.N
+        elif i < 0:
+            return self.N + i
+        else:
+            return i
+
+    def frames_since(self, c0):
+        return self.counter - c0
+
+    def write(self, arr):
+        """Write to this circular array.
+
+        :param arr: array to write
+        """
+        n = len(arr)
+        arr_i = 0
+
+        # left index - use 0 + to avoid copying the reference to SharedInt
+        l_i = 0 + self.write_counter
+        self.write_counter += n
+        # Wrap around if we cross the boundary in data
+        if self.write_counter >= self.N:
+            arr_i = self.N - l_i
+            self.data[l_i:] = arr[:arr_i]
+            self.write_counter %= self.N
+            l_i = 0
+        # print(f"{l_i=}, {self.write_counter=}, {arr_i=}")
+        self.data[l_i : self.write_counter] = arr[arr_i:]
+        self.counter += n
+
+    def make_shared(self, name="recording", create=False):
+        self.shm = SharedMemory(
+            name=name, create=create, size=self.data.nbytes + 16
+        )
+        data = np.ndarray(
+            self.data.shape, dtype=self.data.dtype, buffer=self.shm.buf[16:]
+        )
+        write_counter = SharedInt(self.shm, 0)
+        counter = SharedInt(self.shm, 8)
+        if create:
+            data[:] = self.data[:]
+            write_counter.value = self.write_counter
+            counter.value = self.counter
+        self.data = data
+        self.write_counter = write_counter
+        self.counter = counter
+
+    def stop_sharing(self, unlink=True):
+        assert isinstance(self.write_counter, SharedInt), "Not sharing!"
+        self.data = self.data.copy()
+        self.write_counter = self.write_counter.value
+        self.counter = self.counter.value
+        self.shm.close()
+        if unlink:
+            # Ignore if already closed by another process
+            try:
+                self.shm.unlink()
+            except FileNotFoundError:
+                pass
+        self.shm = None
+
+    def __repr__(self):
+        return self.data.__repr__() + f"\ni: {self.write_counter}"
+
+
+class CircularArraySTFT(CircularArray):
+    def __init__(self, N, channels=2, n_fft=2048, hop_length=256, sr=44100):
+        super().__init__(N, channels)
+        self.N_stft = int(np.ceil(N / hop_length))
+        self.stft = np.zeros(
+            (1 + int(n_fft / 2), self.N_stft),
+            dtype=np.complex64,
         )
 
-        n = self.rec_stop - self.rec_start
-        if self.loop_length is not None:
-            reference_frame = self.start_frame + n
-            self.end_frame, move = self.quantize(reference_frame, False)
-            print(f"\n\rMove {move} to {self.end_frame}")
-            self.rec_stop += move
-            n += move
-        else:
-            self.end_frame = self.loop_length = n
+        self.stft_counter = 0
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.window = sig.windows.hann(n_fft).astype(np.float32)
+        self.sr = sr
 
-        if self.rec_stop > self.rec.counter:
-            wait_for = (self.rec_counter - self.rec_stop) / config.sr
-            # Need to specify sleep time in ms, add blocksize to make sure we
-            # don't get a block too few
-            sd.sleep(int((wait_for + config.blocksize) * 1000))
-            assert self.rec_stop >= self.rec.counter
+        # Onset tracking vars
+        self.onset_env = np.zeros(
+            int(np.ceil(N / hop_length)), dtype=np.float32
+        )
+        self.tg_win_len = 384
+        self.tg_pad = 2 * self.tg_win_len - 1
+        self.tg_window = sig.windows.hann(self.tg_win_len).astype(np.float32)
+        self.tg = np.zeros(
+            (self.tg_win_len, len(self.onset_env)),
+            dtype=np.float32,
+        )
+        self.onset_env_minmax = EMA_MinMaxTracker(
+            min0=0, minmin=0, max0=1, alpha=0.001
+        )
+        self.logspec_minmax = EMA_MinMaxTracker(
+            max0=10, minmax=0, alpha=0.0005
+        )
 
-        back = self.rec.frames_since(self.rec_stop)
-        rec_i = -(n + back)
-        recording = self.rec[rec_i:-back]
-        self.antipop(recording, self.rec[rec_i - config.blend_frames : rec_i])
+        self.mov_max = np.zeros(int(np.ceil(N / hop_length)), dtype=np.float32)
+        self.mov_avg = np.zeros(int(np.ceil(N / hop_length)), dtype=np.float32)
 
-        # We need to add the starting frame (in case we start this audio late)
-        # as well as subtract the audio delay we added when we started
-        # recording
-        n_loop_iter = int(2 * np.ceil(np.log2(n / self.loop_length)))
-        n += self.start_frame - round(callback_time.output_delay * config.sr)
-        if n > n_loop_iter * self.loop_length:
-            n = n % self.loop_length
-        audio = Audio(recording, self.loop_length, n)
-        return audio
+        # Onset detection parameters
+        pre_max = int(0.03 * sr // hop_length)
+        post_max = int(0.0 * sr // hop_length + 1)
+        self.max_length = pre_max + post_max
+        max_origin = int(np.ceil(0.5 * (pre_max - post_max)))
+        self.max_offset = (self.max_length // 2) - max_origin
 
-    def antipop(self, recording, xfade_end):
-        # If we have a full loop, blend from pre-recording, else 0 blend
-        if (self.end_frame % self.loop_length) == 0:
-            recording[-config.blend_frames :] = (
-                RAMP * recording[-config.blend_frames :]
-                + (1 - RAMP) * xfade_end
+        pre_avg = int(0.1 * sr // hop_length)
+        post_avg = int(0.1 * sr // hop_length + 1)
+        self.avg_length = pre_avg + post_avg
+        avg_origin = int(np.ceil(0.5 * (pre_avg - post_avg)))
+        self.avg_offset = (self.avg_length // 2) - avg_origin
+
+        self.wait = int(0.03 * sr // hop_length)
+        self.delta = 0.07
+
+        offset = (
+            self.avg_offset
+            if self.avg_offset > self.max_offset
+            else self.max_offset
+        )
+        self.peaks = PeakTracker(self.N_stft, offset)
+
+        self.tf = tempo_frequencies(self.tg_win_len, hop_length, sr=sr)
+        self.bpm_logprior = (
+            -0.5 * ((np.log2(self.tf) - np.log2(100)) / 1.0) ** 2
+        )[:, None]
+
+    def index_offset_stft(self, offset: Union[int, np.ndarray]):
+        if isinstance(offset, np.ndarray):
+            i = self.stft_counter + offset
+            return np.where(
+                i > self.N_stft,
+                i % self.N_stft,
+                np.where(i < 0, self.N_stft + i, i),
             )
         else:
-            n_pw = len(POP_WINDOW) // 2
-            recording[:n_pw] *= POP_WINDOW[:n_pw]
-            recording[-n_pw:] *= POP_WINDOW[-n_pw:]
-
-    def quantize(self, frame, start=True, lenience=0.2) -> (int, int):
-        """Quantize start or end recording marker to the loop boundary if
-        within some interval from them.  Also returns difference between
-        original frame and quantized frame.
-
-        :param frame: start or end recording marker
-        :param start: True for start, or False for end
-        :param lenience: quantize if within this many seconds from the loop
-            boundary
-
-            For example, for sr=48000, the lenience (indata_at 200ms) is 9600
-            samples.  If the end marker is indata_at between 38400 and 57600,
-            it will instead be set to 48000, the full loop.
-        """
-        loop_n, frame_rem = np.divmod(frame, self.loop_length)
-        lenience = config.sr * lenience
-        if start:
-            if frame < lenience:
-                return 0, -frame
-            elif frame > (self.loop_length - lenience):
-                return 0, self.loop_length - frame
+            if (i := self.stft_counter + offset) > self.N_stft:
+                return i % self.N_stft
+            elif i < 0:
+                return self.N_stft + i
             else:
-                return frame, 0
+                return i
+
+    def fft(self):
+        # Make sure this runs at every update!
+
+        # TODO: If this starts lagging, make sure we don't just ignore
+        # segments, but transform everything since this was last called
+        # To do that, we'd have to vectorize this, which adds complexity :/
+        # Better to just optimize it such that it runs quickly
+        self.stft[:, self.stft_counter] = np.fft.rfft(
+            self.window * self[-self.n_fft :].mean(-1)
+        )
+        self.detect_onsets()
+        self.tempogram()
+        self.stft_counter += 1
+        if self.stft_counter >= self.stft.shape[1]:
+            self.stft_counter = 0
+        # print(f"{self.stft_counter=}")
+
+    def tempogram(self):
+        oe_slice = query_circular(
+            self.onset_env, slice(-self.tg_win_len, None), self.stft_counter
+        )
+        tg = np.fft.irfft(
+            magsquared(np.fft.rfft(self.tg_window * oe_slice, n=self.tg_pad)),
+            n=self.tg_pad,
+        )[: self.tg_win_len]
+        self.tg[:, self.stft_counter] = tg / (tg.max() + 1e-10)
+
+    def tempo(self, tg, agg=np.mean):
+        # From librosa.feature.rhythm
+        if agg is not None:
+            tg = agg(tg, axis=-1, keepdims=True)
+        best_period = np.argmax(
+            np.log1p(1e6 * tg) + self.bpm_logprior, axis=-2
+        )
+        return np.take(self.tf, best_period)
+
+    def detect_onsets(self):
+        # Potentially move over to fft
+        mag = magsquared(self.stft[:, self.stft_counter])
+        magm1 = magsquared(self.stft[:, self.index_offset_stft(-1)])
+        # Convert to DB
+        s = 10.0 * np.log10(np.maximum(1e-10, mag))
+        self.logspec_minmax.add_sample(s.max())
+        s = np.maximum(s, self.logspec_minmax.max_val - 80)
+        sm1 = 10.0 * np.log10(np.maximum(1e-10, magm1))
+        sm1 = np.maximum(sm1, self.logspec_minmax.max_val - 80)
+        # Aggregate frequencies
+        onset_env = np.maximum(0.0, s - sm1).mean()
+
+        # Normalize and add to self
+        self.onset_env_minmax.add_sample(onset_env)
+        self.onset_env[
+            self.stft_counter
+        ] = self.onset_env_minmax.normalize_sample(onset_env)
+
+        mov_max_cur = self.index_offset_stft(-self.max_offset)
+        self.mov_max[mov_max_cur] = np.max(
+            query_circular(
+                self.onset_env,
+                slice(-self.max_length, None),
+                self.stft_counter,
+            )
+        )
+        mov_avg_cur = self.index_offset_stft(-self.avg_offset)
+        self.mov_avg[mov_avg_cur] = np.mean(
+            query_circular(
+                self.onset_env,
+                slice(-self.avg_length, None),
+                self.stft_counter,
+            )
+        )
+        # The average filter is usually wider than the max filter, and
+        # determines our lag wrt. onset detection.
+        cur = mov_avg_cur if self.avg_offset > self.max_offset else mov_max_cur
+        detect = self.onset_env[cur] * (
+            self.onset_env[cur] == self.mov_max[cur]
+        )
+        detect *= detect >= self.mov_avg[cur] + self.delta
+        if detect:
+            if -self.avg_offset > self.peaks.last + self.wait:
+                # Found an onset
+                self.peaks.add_element()
+
+        self.peaks.step()
+
+    def bpm_quantize(self, start, end):
+        # start and end are negative
+        start_f = samples_to_frames(start)
+        end_f = samples_to_frames(end)
+        tg = query_circular(
+            self.tg, slice(start_f, end_f), self.stft_counter, axis=-1
+        )
+        onsets = np.array(self.peaks.relative)
+        # onsets = onsets[(onsets >= start_f) & (onsets <= end_f)]
+        # TODO: Perhaps allow for tempo to change slightly? maybe not
+        bpm = self.tempo(tg)
+        print(bpm)
+        beat_len = (self.sr // self.hop_length) // (bpm / 60)
+        start_diff = np.abs(onsets - start_f)
+        potential_start = (
+            onsets[(onsets > start_f) & (onsets < start_f + 4 * beat_len)]
+            - beat_len
+        )
+        ps_diff = np.abs(potential_start - start)
+        lenience = round(self.sr // self.hop_length * 0.1)
+        if start_diff[(i := start_diff.argmin())] < lenience:
+            print(f"{start_f=} -> {onsets[i]=}")
+            start_f = onsets[i]
+            start_move = start_diff[i]
+        elif ps_diff[(i := ps_diff.argmin())] < lenience:
+            print(f"{start_f=} -> {potential_start[i]=}")
+            start_f = potential_start[i]
+            start_move = ps_diff[i]
         else:
-            if frame_rem < lenience:
-                return loop_n * self.loop_length, -frame_rem
-            elif frame_rem > (self.loop_length - lenience):
-                return (
-                    loop_n + 1
-                ) * self.loop_length, self.loop_length - frame_rem
-            else:
-                return frame, 0
+            start_move = 0
+
+        # print(f"{onsets=}\n{end_f=}\n{beat_len=}")
+
+        end_diff = np.abs(onsets - end_f)
+        potential_end = (
+            onsets[(onsets < end_f) & (onsets > end_f - 4 * beat_len)]
+            + beat_len
+        )
+        ps_diff = np.abs(potential_end - end_f)
+        print(f"{end_diff=}\n{potential_end=}\n{ps_diff=}")
+
+        if end_diff[(i := end_diff.argmin())] < lenience:
+            print(f"{end_f=} -> {onsets[i]=}")
+            end_f = onsets[i]
+            end_move = end_diff[i]
+        elif ps_diff[(i := ps_diff.argmin())] < lenience:
+            print(f"{end_f=} -> {potential_end[i]=}")
+            end_f = potential_end[i]
+            end_move = ps_diff[i]
+        else:
+            end_move = 0
+        return start_f, start_move, end_f, end_move
+
+    def write(self, arr):
+        super().write(arr)
+        self.fft()

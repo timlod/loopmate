@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import time
 from multiprocessing.shared_memory import SharedMemory
 from typing import Optional, Union
 
@@ -96,7 +97,23 @@ def int_to_channels(value: int) -> list[int]:
     return channels
 
 
-def make_recording_struct(N, channels, int_type=ctypes.c_int64):
+def make_recording_struct(
+    N, channels, analysis=False, int_type=ctypes.c_int64
+):
+    n_fft = 2048
+    hop_length = 256
+    N_stft = int(np.ceil(N / hop_length))
+    tg_win_len = 384
+    N_onset_env = int(np.ceil(N / hop_length))
+    analysis_add = [
+        ("stft_counter", int_type),
+        ("stft", ctypes.c_float * 2 * ((1 + int(n_fft / 2) * N_stft))),
+        ("onset_env", ctypes.c_float * N_onset_env),
+        ("mov_max", ctypes.c_float * N_onset_env),
+        ("mov_avg", ctypes.c_float * N_onset_env),
+        ("tg", ctypes.c_float * tg_win_len * N_onset_env),
+    ]
+
     class CRecording(ctypes.Structure):
         _fields_ = [
             ### Everything before write_counter is used for IPC
@@ -116,13 +133,72 @@ def make_recording_struct(N, channels, int_type=ctypes.c_int64):
             # Potentially just use the integer and have 0 signal not ready
             ("result_ready", ctypes.c_bool),
             # Type of result that can be taken
-            ("result_type", ctypes.int_type),
+            ("result_type", int_type),
+            # Result? array?
             ("write_counter", int_type),
             ("counter", int_type),
             ("data", ctypes.c_float * (N * channels)),
-        ]
+        ] + (analysis_add if analysis else [])
 
     return CRecording
+
+
+class RecMain:
+    def __init__(self, N, channels, name="recording"):
+        cstruct = make_recording_struct(N, channels)
+        self.shm = SharedMemory(
+            name=name, create=True, size=ctypes.sizeof(cstruct)
+        )
+        self.data = cstruct.from_buffer(self.shm.buf)
+        self.ca = CircularArray(
+            np.ndarray(
+                (N, channels),
+                dtype=np.float32,
+                buffer=self.shm.buf[cstruct.data.offset],
+            )
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.shm.unlink()
+
+
+class RecAnalysis:
+    def __init__(self, N, channels, name="recording", poll_time=0.0001):
+        cstruct = make_recording_struct(N, channels)
+        self.shm = SharedMemory(
+            name=name, create=False, size=ctypes.sizeof(cstruct)
+        )
+        self.data = cstruct.from_buffer(self.shm.buf)
+        self.ca = CircularArraySTFT(
+            np.ndarray(
+                (N, channels),
+                dtype=np.float32,
+                buffer=self.shm.buf[cstruct.data.offset],
+            )
+        )
+
+    def run(self):
+        while True:
+            while not self.do_stft:
+                time.sleep(self.poll_time)
+            self.ca.fft()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.shm.close()
+
+
+class RecA:
+    def bpm_quantize_start(self):
+        pass
+
+    def get_last_impulse(self):
+        pass
 
 
 class CircularArray:
@@ -131,12 +207,12 @@ class CircularArray:
     wrap-around fashion.
     """
 
-    def __init__(self, N, channels=2):
-        self.data = np.zeros((N, channels), dtype=np.float32)
-        self.N = N
-        self.write_counter = 0
+    def __init__(self, data, write_counter=0, counter=0):
+        self.data = data
+        self.N = len(data)
+        self.write_counter = write_counter
         # Use to compute differences in samples between two points in time
-        self.counter = 0
+        self.counter = counter
 
         # Extra details to take note of through shared memory:
         # most recent onset frame?
@@ -192,40 +268,8 @@ class CircularArray:
             self.data[l_i:] = arr[:arr_i]
             self.write_counter %= self.N
             l_i = 0
-        # print(f"{l_i=}, {self.write_counter=}, {arr_i=}")
         self.data[l_i : self.write_counter] = arr[arr_i:]
         self.counter += n
-
-    def make_shared(self, name="recording", create=False):
-        self.shm = SharedMemory(
-            name=name, create=create, size=self.data.nbytes + 16
-        )
-        data = np.ndarray(
-            self.data.shape, dtype=self.data.dtype, buffer=self.shm.buf[16:]
-        )
-        write_counter = SharedInt(self.shm, 0)
-        counter = SharedInt(self.shm, 8)
-        if create:
-            data[:] = self.data[:]
-            write_counter.value = self.write_counter
-            counter.value = self.counter
-        self.data = data
-        self.write_counter = write_counter
-        self.counter = counter
-
-    def stop_sharing(self, unlink=True):
-        assert isinstance(self.write_counter, SharedInt), "Not sharing!"
-        self.data = self.data.copy()
-        self.write_counter = self.write_counter.value
-        self.counter = self.counter.value
-        self.shm.close()
-        if unlink:
-            # Ignore if already closed by another process
-            try:
-                self.shm.unlink()
-            except FileNotFoundError:
-                pass
-        self.shm = None
 
     def __repr__(self):
         return self.data.__repr__() + f"\ni: {self.write_counter}"
@@ -233,7 +277,7 @@ class CircularArray:
 
 class CircularArraySTFT(CircularArray):
     def __init__(self, N, channels=2, n_fft=2048, hop_length=256, sr=44100):
-        super().__init__(N, channels)
+        super().__init__(N, channels, create=False)
         self.N_stft = int(np.ceil(N / hop_length))
         self.stft = np.zeros(
             (1 + int(n_fft / 2), self.N_stft),

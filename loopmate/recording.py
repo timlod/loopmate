@@ -207,31 +207,43 @@ class CircularArray:
     wrap-around fashion.
     """
 
-    def __init__(self, data, write_counter=0, counter=0):
+    def __init__(self, data: np.ndarray, write_counter=0, counter=0, axis=0):
+        """
+        Initialize CircularArray given numpy array and counters.  Can be backed
+        by shared memory.
+
+        :param data: numpy array
+        :param write_counter: can be wrapped in a SharedInt
+        :param counter: can be wrapped in a SharedInt
+        :param axis: axis along which to wrap the array.  Needs to be first or
+            last axis (0 or -1)!
+        """
         self.data = data
-        self.N = len(data)
+        assert axis in (0, -1), "Axis needs to be either 0 or -1!"
+        self.axis = axis
+        self.N = data.shape[axis]
         self.write_counter = write_counter
-        # Use to compute differences in samples between two points in time
         self.counter = counter
 
-        # Extra details to take note of through shared memory:
-        # most recent onset frame?
-        # best closest starting/end frame given beat quantization?
-        # what else?
-        # pack this up in a ctypes struct
-
-    def query(self, i: slice, out=None):
+    def query(self, i: slice | int, out=None):
         """Return n samples.  Note: returns a copy of the requested data
         (unless we specify the output array, in which case it writes a copy
         into it)!
 
-        :param i: slice of samples to return.  Needs to satisfy -self.N < start
-                  < stop <= 0.  Ignores slice step.
+        :param i: index or slice of samples to return.  Needs to satisfy
+                  -self.N < start < stop <= 0.  Ignores slice step.
         :param out: array to place the samples into.  Can be used to re-use an
             array of loop_length for sample storage to avoid extra memory
             copies.
         """
-        return query_circular(self.data, i, int(self.write_counter), out)
+        if isinstance(i, int):
+            if self.axis == 0:
+                return self.data[self.index_offset(i)]
+            else:
+                return self.data[..., self.index_offset(i)]
+        return query_circular(
+            self.data, i, int(self.write_counter), out, axis=self.axis
+        )
 
     def __getitem__(self, i):
         """Get samples from this array. This returns a copy.
@@ -241,7 +253,7 @@ class CircularArray:
         return self.query(i)
 
     def index_offset(self, offset):
-        if (i := self.write_counter + offset) >= self.N:
+        if (i := self.write_counter + offset) > self.N:
             return i % self.N
         elif i < 0:
             return self.N + i
@@ -256,23 +268,30 @@ class CircularArray:
 
         :param arr: array to write
         """
-        n = len(arr)
+        n = arr.shape[self.axis]
         arr_i = 0
 
-        # left index - use 0 + to avoid copying the reference to SharedInt
         l_i = 0 + self.write_counter
         self.write_counter += n
-        # Wrap around if we cross the boundary in data
         if self.write_counter >= self.N:
             arr_i = self.N - l_i
-            self.data[l_i:] = arr[:arr_i]
+            if self.axis == 0:
+                self.data[l_i:] = arr[:arr_i]
+            elif self.axis == -1:
+                self.data[..., l_i:] = arr[..., :arr_i]
             self.write_counter %= self.N
             l_i = 0
-        self.data[l_i : self.write_counter] = arr[arr_i:]
+        if self.axis == 0:
+            self.data[l_i : self.write_counter] = arr[arr_i:]
+        else:
+            self.data[..., l_i : self.write_counter] = arr[..., arr_i:]
         self.counter += n
 
     def __repr__(self):
-        return self.data.__repr__() + f"\ni: {self.write_counter}"
+        return (
+            self.data.__repr__()
+            + f"\nN: {self.N}, i: {self.write_counter}, c: {self.counter}"
+        )
 
 
 class CircularArraySTFT(CircularArray):

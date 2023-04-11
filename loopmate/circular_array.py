@@ -101,7 +101,7 @@ class CircularArray:
         return self.query(i)
 
     def index_offset(self, offset):
-        if (i := self.write_counter + offset) > self.N:
+        if (i := self.write_counter + offset) >= self.N:
             return i % self.N
         elif i < 0:
             return self.N + i

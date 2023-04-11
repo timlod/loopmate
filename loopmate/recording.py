@@ -1,15 +1,17 @@
-from __future__ import annotations
-
 import ctypes
+import multiprocessing as mp
 import time
 from multiprocessing.shared_memory import SharedMemory
 from typing import Optional, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import sounddevice as sd
+import soundfile as sf
 from scipy import signal as sig
 
 from loopmate import config
+from loopmate.circular_array import query_circular
 from loopmate.loop import Audio
 from loopmate.utils import (
     EMA_MinMaxTracker,
@@ -17,7 +19,6 @@ from loopmate.utils import (
     SharedInt,
     StreamTime,
     magsquared,
-    query_circular,
     samples_to_frames,
     tempo_frequencies,
 )

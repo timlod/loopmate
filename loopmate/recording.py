@@ -99,20 +99,22 @@ def int_to_channels(value: int) -> list[int]:
 
 
 def make_recording_struct(
-    N, channels, analysis=False, int_type=ctypes.c_int64
+    N,
+    channels,
+    analysis=False,
+    int_type=ctypes.c_int64,
 ):
-    n_fft = 2048
-    hop_length = 256
-    N_stft = int(np.ceil(N / hop_length))
-    tg_win_len = 384
-    N_onset_env = int(np.ceil(N / hop_length))
+    N_stft = int(np.ceil(N / config.hop_length))
     analysis_add = [
         ("stft_counter", int_type),
-        ("stft", ctypes.c_float * 2 * ((1 + int(n_fft / 2) * N_stft))),
-        ("onset_env", ctypes.c_float * N_onset_env),
-        ("mov_max", ctypes.c_float * N_onset_env),
-        ("mov_avg", ctypes.c_float * N_onset_env),
-        ("tg", ctypes.c_float * tg_win_len * N_onset_env),
+        (
+            "stft",
+            ctypes.c_float * (2 * ((1 + int(config.n_fft / 2) * N_stft))),
+        ),
+        ("onset_env", ctypes.c_float * N_stft),
+        ("mov_max", ctypes.c_float * N_stft),
+        ("mov_avg", ctypes.c_float * N_stft),
+        ("tg", ctypes.c_float * config.tg_win_len * N_stft),
     ]
 
     class CRecording(ctypes.Structure):
@@ -146,7 +148,8 @@ def make_recording_struct(
 
 class RecMain:
     def __init__(self, N, channels, name="recording"):
-        cstruct = make_recording_struct(N, channels)
+        cstruct = make_recording_struct(N, channels, True)
+        self.cstruct = cstruct
         self.shm = SharedMemory(
             name=name, create=True, size=ctypes.sizeof(cstruct)
         )
@@ -155,8 +158,10 @@ class RecMain:
             np.ndarray(
                 (N, channels),
                 dtype=np.float32,
-                buffer=self.shm.buf[cstruct.data.offset],
-            )
+                buffer=self.shm.buf[cstruct.data.offset :],
+            ),
+            SharedInt(self.shm, cstruct.write_counter.offset),
+            SharedInt(self.shm, cstruct.counter.offset),
         )
 
     def __enter__(self):
@@ -168,24 +173,126 @@ class RecMain:
 
 class RecAnalysis:
     def __init__(self, N, channels, name="recording", poll_time=0.0001):
-        cstruct = make_recording_struct(N, channels)
+        # TODO: take N from config or also kwarg other config items
+        self.poll_time = poll_time
+
+        self.N_stft = int(np.ceil(N / config.hop_length))
+        cstruct = make_recording_struct(N, channels, True)
+
         self.shm = SharedMemory(
             name=name, create=False, size=ctypes.sizeof(cstruct)
         )
         self.data = cstruct.from_buffer(self.shm.buf)
-        self.ca = CircularArraySTFT(
+        self.audio = CircularArray(
             np.ndarray(
                 (N, channels),
                 dtype=np.float32,
-                buffer=self.shm.buf[cstruct.data.offset],
-            )
+                buffer=self.shm.buf[cstruct.data.offset :],
+            ),
+            SharedInt(self.shm, cstruct.write_counter.offset),
+            SharedInt(self.shm, cstruct.counter.offset),
         )
+        shared_stft_counter = SharedInt(self.shm, cstruct.stft_counter.offset)
+        self.stft = CircularArray(
+            np.ndarray(
+                (1 + int(config.n_fft / 2), self.N_stft),
+                dtype=np.complex64,
+                buffer=self.shm.buf[cstruct.stft.offset :],
+            ),
+            shared_stft_counter,
+            axis=-1,
+        )
+        self.onset_env = CircularArray(
+            np.ndarray(
+                self.N_stft,
+                dtype=np.float32,
+                buffer=self.shm.buf[cstruct.onset_env.offset :],
+            ),
+            shared_stft_counter,
+        )
+        self.tg = CircularArray(
+            np.ndarray(
+                (config.tg_win_len, self.N_stft),
+                dtype=np.float32,
+                buffer=self.shm.buf[cstruct.tg.offset :],
+            ),
+            shared_stft_counter,
+            axis=-1,
+        )
+        # As these have offset cursors, we don't use CircularArray
+        self.mov_max = np.ndarray(
+            self.N_stft,
+            dtype=np.float32,
+            buffer=self.shm.buf[cstruct.mov_max.offset :],
+        )
+        self.mov_avg = np.ndarray(
+            self.N_stft,
+            dtype=np.float32,
+            buffer=self.shm.buf[cstruct.mov_avg.offset :],
+        )
+        self.window = sig.windows.hann(config.n_fft).astype(np.float32)
+        self.tg_window = sig.windows.hann(config.tg_win_len).astype(np.float32)
+        self.onset_env_minmax = EMA_MinMaxTracker(
+            min0=0, minmin=0, max0=1, alpha=0.001
+        )
+        self.logspec_minmax = EMA_MinMaxTracker(
+            max0=10, minmax=0, alpha=0.0005
+        )
+        self.peaks = PeakTracker(self.N_stft, config.onset_det_offset)
 
     def run(self):
         while True:
-            while not self.do_stft:
-                time.sleep(self.poll_time)
-            self.ca.fft()
+            while not self.data.do_stft:
+                # time.sleep(self.poll_time)
+                pass
+            self.fft()
+            self.data.do_stft = False
+
+    def fft(self):
+        stft = np.fft.rfft(self.window * self.audio[-config.n_fft :].mean(-1))
+        self.stft.write(stft[:, None], False)
+        self.onset_strength()
+        self.tempogram()
+
+    def onset_strength(self):
+        mag = magsquared(self.stft[-1])
+        magm1 = magsquared(self.stft[-2])
+        # Convert to DB
+        s = 10.0 * np.log10(np.maximum(1e-10, mag))
+        self.logspec_minmax.add_sample(s.max())
+        s = np.maximum(s, self.logspec_minmax.max_val - 80)
+        sm1 = 10.0 * np.log10(np.maximum(1e-10, magm1))
+        sm1 = np.maximum(sm1, self.logspec_minmax.max_val - 80)
+        # Aggregate frequencies
+        onset_env = np.maximum(0.0, s - sm1).mean()
+
+        # Normalize and write
+        self.onset_env_minmax.add_sample(onset_env)
+        self.onset_env.write(
+            np.array([self.onset_env_minmax.normalize_sample(onset_env)]),
+            False,
+        )
+        mov_max_cur = self.onset_env.index_offset(-config.max_offset)
+        self.mov_max[mov_max_cur] = np.max(
+            self.onset_env[-config.max_length :]
+        )
+        mov_avg_cur = self.onset_env.index_offset(-config.avg_offset)
+        self.mov_avg[mov_avg_cur] = np.mean(
+            self.onset_env[-config.avg_length :]
+        )
+
+    def tempogram(self):
+        tg = np.fft.irfft(
+            magsquared(
+                np.fft.rfft(
+                    self.tg_window * self.onset_env[-config.tg_win_len :],
+                    n=config.tg_pad,
+                )
+            ),
+            n=config.tg_pad,
+        )[: config.tg_win_len, None]
+        # This one increments the shared counter
+        self.tg.write(tg / (tg.max() + 1e-10))
 
     def __enter__(self):
         return self
@@ -194,7 +301,30 @@ class RecAnalysis:
         self.shm.close()
 
 
-class RecA:
+class RecA(RecAnalysis):
+    def detect_onsets(self, start):
+        o = -config.onset_det_offset
+        onset_env = self.onset_env[start:o]
+        mov_max = self.mov_max[start:o]
+        mov_avg = self.mov_avg[start:o]
+        detections = self.onset_env * (onset_env == mov_max)
+        # Then mask out all entries less than the thresholded average
+        detections = detections * (detections >= (mov_avg + config.delta))
+
+        # Initialize peaks array, to be filled greedily
+        peaks = []
+
+        # Remove onsets which are close together in time
+        last_onset = -np.inf
+        for i in np.nonzero(detections)[0]:
+            # Only report an onset if the "wait" samples was reported
+            if i > last_onset + config.wait:
+                peaks.append(i)
+                # Save last reported onset
+                last_onset = i
+
+        return np.array(peaks)
+
     def bpm_quantize_start(self):
         pass
 
@@ -284,9 +414,8 @@ class CircularArray:
         arr_i = 0
 
         l_i = 0 + self.write_counter
-        if increment:
-            self.counter += n
-            self.write_counter += n
+        prev_wc = int(self.write_counter)
+        self.write_counter += n
         if self.write_counter >= self.N:
             arr_i = self.N - l_i
             if self.axis == 0:
@@ -299,6 +428,11 @@ class CircularArray:
             self.data[l_i : self.write_counter] = arr[arr_i:]
         else:
             self.data[..., l_i : self.write_counter] = arr[..., arr_i:]
+
+        if increment:
+            self.counter += n
+        else:
+            self.write_counter -= self.write_counter - prev_wc
 
     def __repr__(self):
         return (
@@ -323,9 +457,7 @@ class CircularArraySTFT(CircularArray):
         self.sr = sr
 
         # Onset tracking vars
-        self.onset_env = np.zeros(
-            int(np.ceil(N / hop_length)), dtype=np.float32
-        )
+        self.onset_env = np.zeros(self.N_stft, dtype=np.float32)
         self.tg_win_len = 384
         self.tg_pad = 2 * self.tg_win_len - 1
         self.tg_window = sig.windows.hann(self.tg_win_len).astype(np.float32)
@@ -402,7 +534,6 @@ class CircularArraySTFT(CircularArray):
         self.stft_counter += 1
         if self.stft_counter >= self.stft.shape[1]:
             self.stft_counter = 0
-        # print(f"{self.stft_counter=}")
 
     def tempogram(self):
         oe_slice = query_circular(
@@ -528,3 +659,41 @@ class CircularArraySTFT(CircularArray):
     def write(self, arr):
         super().write(arr)
         self.fft()
+
+
+def analysis(N):
+    b = RecAnalysis(N, 1)
+    b.run()
+
+
+if __name__ == "__main__":
+    wav, sr = sf.read("../data/drums.wav")
+    wav = wav.mean(1)
+
+    N = len(wav)
+
+    with RecMain(N, 1) as rec:
+        N_stft = int(np.ceil(N / config.hop_length))
+
+        tg = np.ndarray(
+            (config.tg_win_len, N_stft),
+            dtype=np.float32,
+            buffer=rec.shm.buf[rec.cstruct.tg.offset :],
+        )
+        stft = np.ndarray(
+            (1 + int(config.n_fft / 2), N_stft),
+            dtype=np.float32,
+            buffer=rec.shm.buf[rec.cstruct.stft.offset :],
+        )
+
+        ap = mp.Process(target=analysis, args=(N,))
+        ap.start()
+        for i in range(0, len(wav) // 1, 256):
+            rec.ca.write(wav[i : i + 256, None])
+            rec.data.do_stft = True
+            time.sleep(0.0005)
+
+        # print(f"{tg=}, {tg.any()}, {stft=}")
+        plt.imshow(tg)
+        plt.savefig("test.png")
+    ap.terminate()

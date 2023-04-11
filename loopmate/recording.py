@@ -371,7 +371,7 @@ class CircularArraySTFT(CircularArray):
                 np.where(i < 0, self.N_stft + i, i),
             )
         else:
-            if (i := self.stft_counter + offset) > self.N_stft:
+            if (i := self.stft_counter + offset) >= self.N_stft:
                 return i % self.N_stft
             elif i < 0:
                 return self.N_stft + i

@@ -263,16 +263,21 @@ class CircularArray:
     def frames_since(self, c0):
         return self.counter - c0
 
-    def write(self, arr):
+    def write(self, arr, increment=True):
         """Write to this circular array.
 
         :param arr: array to write
+        :param increment: whether to increment counters.  Use False only if
+            counters are shared and should only be incremented once each
+            timestep!
         """
         n = arr.shape[self.axis]
         arr_i = 0
 
         l_i = 0 + self.write_counter
-        self.write_counter += n
+        if increment:
+            self.counter += n
+            self.write_counter += n
         if self.write_counter >= self.N:
             arr_i = self.N - l_i
             if self.axis == 0:
@@ -285,7 +290,6 @@ class CircularArray:
             self.data[l_i : self.write_counter] = arr[arr_i:]
         else:
             self.data[..., l_i : self.write_counter] = arr[..., arr_i:]
-        self.counter += n
 
     def __repr__(self):
         return (

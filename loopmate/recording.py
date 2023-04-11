@@ -252,13 +252,21 @@ class CircularArray:
         """
         return self.query(i)
 
-    def index_offset(self, offset):
-        if (i := self.write_counter + offset) > self.N:
-            return i % self.N
-        elif i < 0:
-            return self.N + i
+    def index_offset(self, offset: Union[int, np.ndarray]):
+        i = self.write_counter + offset
+        if isinstance(offset, np.ndarray):
+            return np.where(
+                i > self.N,
+                i % self.N,
+                np.where(i < 0, self.N + i, i),
+            )
         else:
-            return i
+            if i > self.N:
+                return i % self.N
+            elif i < 0:
+                return self.N + i
+            else:
+                return i
 
     def frames_since(self, c0):
         return self.counter - c0

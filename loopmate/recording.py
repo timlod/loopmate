@@ -115,6 +115,8 @@ def make_recording_struct(
         ("mov_max", ctypes.c_float * N_stft),
         ("mov_avg", ctypes.c_float * N_stft),
         ("tg", ctypes.c_float * config.tg_win_len * N_stft),
+        ("analysis_action", int_type),
+        ("quit", ctypes.c_bool),
     ]
 
     class CRecording(ctypes.Structure):
@@ -168,7 +170,14 @@ class RecMain:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        print("exiting")
+        # Without this deletion, we'll get a BufferError, even though
+        # https://docs.python.org/3/library/multiprocessing.shared_memory.html#multiprocessing.shared_memory.SharedMemory.close
+        # states it's unnecessary
+        del (self.data, self.ca)
+        self.shm.close()
         self.shm.unlink()
+        print("exiting unlinked")
 
 
 class RecAnalysis:
@@ -241,12 +250,17 @@ class RecAnalysis:
         self.peaks = PeakTracker(self.N_stft, config.onset_det_offset)
 
     def run(self):
-        while True:
-            while not self.data.do_stft:
-                # time.sleep(self.poll_time)
-                pass
-            self.fft()
-            self.data.do_stft = False
+        while not self.data.quit:
+            self.do()
+
+    def do(self):
+        while not self.data.do_stft:
+            if self.data.quit:
+                return
+            # Currently causes delays
+            # time.sleep(self.poll_time)
+        self.fft()
+        self.data.do_stft = False
 
     def fft(self):
         stft = np.fft.rfft(self.window * self.audio[-config.n_fft :].mean(-1))
@@ -298,10 +312,38 @@ class RecAnalysis:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        print("closing")
+        del (
+            self.data,
+            self.audio,
+            self.tg,
+            self.onset_env,
+            self.stft,
+            self.mov_avg,
+            self.mov_max,
+        )
+        self.shm.close()
+        print("closed")
         self.shm.close()
 
 
 class RecA(RecAnalysis):
+    def do(self):
+        while self.data.analysis_action == 0:
+            if self.data.quit:
+                return
+            time.sleep(self.poll_time)
+        # TODO: store and pass along start and end events through shm
+        match self.data.analysis_action:
+            case 1:
+                print("Doing 1")
+                # Sleep for a bit to make sure we account for bad timing
+                sd.sleep(200)
+                start = -self.audio.frames_since(self.data.recording_start)
+                print("onsets:", self.detect_onsets(samples_to_frames(start)))
+
+        self.data.analysis_action = 0
+
     def detect_onsets(self, start):
         o = -config.onset_det_offset
         onset_env = self.onset_env[start:o]

@@ -40,11 +40,10 @@ def query_circular(
     start, stop = idx_slice.start or 0, idx_slice.stop or 0
     N = data.shape[axis]
     assert (
-        -N < start < stop <= 0
-    ), f"Can only slice at most N ({N}) items backward on!"
+        -N <= start < stop <= 0
+    ), f"Can only slice at most N ({N}) items backward on! {start}/{stop}"
     l_i = counter + start
     r_i = counter + stop
-    # print(f"{counter=}, {start=}, {stop=}")
 
     if l_i < 0 <= r_i:
         if axis != 0:

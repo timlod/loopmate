@@ -351,10 +351,11 @@ class RecA(RecAnalysis):
 
     def detect_onsets(self, start):
         o = -config.onset_det_offset
+        wc = self.onset_env.write_counter
         onset_env = self.onset_env[start:o]
-        mov_max = self.mov_max[start:o]
-        mov_avg = self.mov_avg[start:o]
-        detections = self.onset_env * (onset_env == mov_max)
+        mov_max = query_circular(self.mov_max, slice(start, o), wc)
+        mov_avg = query_circular(self.mov_avg, slice(start, o), wc)
+        detections = onset_env * (onset_env == mov_max)
         # Then mask out all entries less than the thresholded average
         detections = detections * (detections >= (mov_avg + config.delta))
 

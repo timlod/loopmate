@@ -109,7 +109,7 @@ def make_recording_struct(
         ("stft_counter", int_type),
         (
             "stft",
-            ctypes.c_float * (2 * ((1 + int(config.n_fft / 2) * N_stft))),
+            ctypes.c_float * (2 * (1 + int(config.n_fft / 2)) * N_stft),
         ),
         ("onset_env", ctypes.c_float * N_stft),
         ("mov_max", ctypes.c_float * N_stft),

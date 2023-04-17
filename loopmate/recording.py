@@ -111,9 +111,11 @@ def make_recording_struct(
             "stft",
             ctypes.c_float * (2 * (1 + int(config.n_fft / 2)) * N_stft),
         ),
+        ("onset_env_counter", int_type),
         ("onset_env", ctypes.c_float * N_stft),
         ("mov_max", ctypes.c_float * N_stft),
         ("mov_avg", ctypes.c_float * N_stft),
+        ("tg_counter", int_type),
         ("tg", ctypes.c_float * config.tg_win_len * N_stft),
         ("analysis_action", int_type),
         ("quit", ctypes.c_bool),
@@ -201,14 +203,18 @@ class RecAnalysis:
             SharedInt(self.shm, cstruct.write_counter.offset),
             SharedInt(self.shm, cstruct.counter.offset),
         )
-        shared_stft_counter = SharedInt(self.shm, cstruct.stft_counter.offset)
+        stft_counter = SharedInt(self.shm, cstruct.stft_counter.offset)
+        onset_env_counter = SharedInt(
+            self.shm, cstruct.onset_env_counter.offset
+        )
+        tg_counter = SharedInt(self.shm, cstruct.tg_counter.offset)
         self.stft = CircularArray(
             np.ndarray(
                 (1 + int(config.n_fft / 2), self.N_stft),
                 dtype=np.complex64,
                 buffer=self.shm.buf[cstruct.stft.offset :],
             ),
-            shared_stft_counter,
+            stft_counter,
             axis=-1,
         )
         self.onset_env = CircularArray(
@@ -217,7 +223,7 @@ class RecAnalysis:
                 dtype=np.float32,
                 buffer=self.shm.buf[cstruct.onset_env.offset :],
             ),
-            shared_stft_counter,
+            onset_env_counter,
         )
         self.tg = CircularArray(
             np.ndarray(
@@ -225,7 +231,7 @@ class RecAnalysis:
                 dtype=np.float32,
                 buffer=self.shm.buf[cstruct.tg.offset :],
             ),
-            shared_stft_counter,
+            tg_counter,
             axis=-1,
         )
         # As these have offset cursors, we don't use CircularArray
@@ -264,7 +270,7 @@ class RecAnalysis:
 
     def fft(self):
         stft = np.fft.rfft(self.window * self.audio[-config.n_fft :].mean(-1))
-        self.stft.write(stft[:, None], False)
+        self.stft.write(stft[:, None])
         self.onset_strength()
         self.tempogram()
 
@@ -283,8 +289,7 @@ class RecAnalysis:
         # Normalize and write
         self.onset_env_minmax.add_sample(onset_env)
         self.onset_env.write(
-            np.array([self.onset_env_minmax.normalize_sample(onset_env)]),
-            False,
+            np.array([self.onset_env_minmax.normalize_sample(onset_env)])
         )
         mov_max_cur = self.onset_env.index_offset(-config.max_offset)
         self.mov_max[mov_max_cur] = np.max(
@@ -456,8 +461,8 @@ class CircularArray:
         arr_i = 0
 
         l_i = 0 + self.write_counter
-        prev_wc = int(self.write_counter)
         self.write_counter += n
+        self.counter += n
         if self.write_counter >= self.N:
             arr_i = self.N - l_i
             if self.axis == 0:
@@ -470,11 +475,6 @@ class CircularArray:
             self.data[l_i : self.write_counter] = arr[arr_i:]
         else:
             self.data[..., l_i : self.write_counter] = arr[..., arr_i:]
-
-        if increment:
-            self.counter += n
-        else:
-            self.write_counter -= self.write_counter - prev_wc
 
     def __repr__(self):
         return (

@@ -398,6 +398,38 @@ class RecA(RecAnalysis):
             config.hop_length,
         )
 
+        print(
+            onsets,
+            self.quantize(0, onsets)
+            # onsets - samples_to_frames(lookaround_samples, config.hop_length),
+            # frames_to_samples(
+            #     onsets
+            #     - samples_to_frames(lookaround_samples, config.hop_length),
+            #     config.hop_length,
+            # ),
+        )
+
+    def quantize_onsets(
+        self, frame, onsets, lenience=round(config.sr * 0.1)
+    ) -> (int, int):
+        """Quantize recording marker to onsets if within some interval from
+        them.  Also returns difference between original frame and quantized
+        frame.
+
+        :param frame: start or end recording marker
+        :param onsets: array of detected onsets
+        :param lenience: quantize if within this many samples from detected
+            onsets
+        """
+        if len(onsets) == 0:
+            return frame, 0
+        abs_onsets = np.abs(onsets)
+        if abs_onsets[(i := abs_onsets.argmin())] < lenience:
+            move = onsets[i]
+        else:
+            move = 0
+        return frame + move, move
+
     def detect_onsets(self, start):
         o = -config.onset_det_offset
         wc = self.onset_env.write_counter

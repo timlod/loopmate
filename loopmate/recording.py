@@ -18,6 +18,7 @@ from loopmate.utils import (
     PeakTracker,
     SharedInt,
     StreamTime,
+    frames_to_samples,
     magsquared,
     samples_to_frames,
     tempo_frequencies,
@@ -291,11 +292,12 @@ class RecAnalysis:
         self.onset_env.write(
             np.array([self.onset_env_minmax.normalize_sample(onset_env)])
         )
-        mov_max_cur = self.onset_env.index_offset(-config.max_offset)
+        # Decrement offsets by one as we already incremented onset_env
+        mov_max_cur = self.onset_env.index_offset(-config.max_offset - 1)
         self.mov_max[mov_max_cur] = np.max(
             self.onset_env[-config.max_length :]
         )
-        mov_avg_cur = self.onset_env.index_offset(-config.avg_offset)
+        mov_avg_cur = self.onset_env.index_offset(-config.avg_offset - 1)
         self.mov_avg[mov_avg_cur] = np.mean(
             self.onset_env[-config.avg_length :]
         )

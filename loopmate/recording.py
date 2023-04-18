@@ -344,12 +344,59 @@ class RecA(RecAnalysis):
         match self.data.analysis_action:
             case 1:
                 print("Doing 1")
-                # Sleep for a bit to make sure we account for bad timing
-                sd.sleep(200)
-                start = -self.audio.frames_since(self.data.recording_start)
-                print("onsets:", self.detect_onsets(samples_to_frames(start)))
+                self.quantize_start()
 
         self.data.analysis_action = 0
+
+    def quantize_start(self, lenience=config.sr * 0.1):
+        # Sleep for a bit to make sure we account for bad timing, as well as
+        # the delay from onset detection
+        det_delay_s = config.onset_det_offset * config.hop_length / config.sr
+        wait_for_ms = 250
+        print(
+            f"{self.data.recording_start=}, {self.data.write_counter=}, {self.data.counter=}, {det_delay_s=}, {det_delay_s*config.sr=}"
+        )
+        # Wait for wait_for_ms as well as the onset detection delay
+        sd.sleep(wait_for_ms + int(det_delay_s * 1000))
+        # We want to check recording_start, so the reference is the frames
+        # since then
+        ref = self.audio.frames_since(self.data.recording_start)
+        # We want to get this many samples before the reference as well
+        lookaround_samples = int(wait_for_ms / 1000 * config.sr)
+        start = ref + lookaround_samples
+        start_frames = -samples_to_frames(start, config.hop_length)
+        # In practice, the algorithm finds the onset somewhat later, so
+        # we decrement by one to be closer to the actual onset
+        print(f"{ref=}, {start=}, {start_frames=}, {lookaround_samples=}")
+
+        onsets = self.detect_onsets(start_frames) - 1
+
+        # audio = self.audio[
+        #     -start : -frames_to_samples(
+        #         config.onset_det_offset, config.hop_length
+        #     )
+        # ]
+        # # We added the offset to start frames, so we remove it here
+        # oe = self.onset_env[start_frames : -config.onset_det_offset]
+        # plt.figure(figsize=(22, 4))
+        # plt.plot(audio)
+        # plt.vlines(
+        #     frames_to_samples(onsets, hop_length=config.hop_length),
+        #     -0.25,
+        #     0.25,
+        #     "red",
+        # )
+        # plt.savefig("test.png")
+        # plt.figure(figsize=(22, 4))
+        # plt.plot(oe)
+        # plt.vlines(onsets, 0, 0.5, "red")
+        # plt.savefig("oe.png")
+
+        # TODO: just add lookaround_samples raw at the end?
+        onsets = frames_to_samples(
+            onsets - samples_to_frames(lookaround_samples, config.hop_length),
+            config.hop_length,
+        )
 
     def detect_onsets(self, start):
         o = -config.onset_det_offset

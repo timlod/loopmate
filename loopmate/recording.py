@@ -604,14 +604,16 @@ class CircularArray:
         )
 
 
-    def write(self, arr):
-        super().write(arr)
-        self.fft()
-
-
 def analysis(N):
-    b = RecAnalysis(N, 1)
-    b.run()
+    with RecAnalysis(N, 1) as rec:
+        rec.run()
+    print("done analysis")
+
+
+def a2(N):
+    with RecA(N, 1) as rec:
+        rec.run()
+    print("done a2")
 
 
 if __name__ == "__main__":

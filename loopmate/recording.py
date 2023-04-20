@@ -455,7 +455,7 @@ class RecA(RecAnalysis):
         tg = self.tg[start_frame:end_frame]
         bpm = self.tempo(tg)[0]
         onsets = self.detect_onsets(start_frame)
-        beat_len = (config.sr // config.hop_length) // (bpm / 60)
+        beat_len = int(config.sr / (bpm / 60))
         offset = find_offset(onsets, bpm, config.sr, method="Powell")
         if abs(offset) > 512:
             print(f"Predicted {offset / config.sr} miss!")

@@ -10,7 +10,7 @@ import pedalboard
 import sounddevice as sd
 import soundfile as sf
 
-from loopmate import circular_array, config, utils
+from loopmate import circular_array, config, recording as lr, utils
 from loopmate.actions import (
     BackCaptureTrigger,
     Effect,
@@ -27,6 +27,7 @@ class MidiQueue:
     def __init__(self, loop):
         self.loop = loop
         self.port = mido.open_input(callback=self.receive)
+        self.in_rec = False
 
     def receive(self, message):
         gain = 1.0
@@ -55,9 +56,13 @@ class MidiQueue:
                     bpm_quant = True
                 else:
                     bpm_quant = False
+                self.in_rec = not self.in_rec
                 # Record should probably take start/end frames optionally as
                 # input which could come from bpm quantization
-                self.loop.record()
+                if self.in_rec:
+                    self.loop.start_record()
+                else:
+                    self.loop.stop_record()
             elif message.note == 57:
                 n = self.loop.anchor.loop_length
                 when = (

@@ -450,8 +450,11 @@ class RecA(RecAnalysis):
         ref_start = self.audio.frames_since(self.data.recording_start)
         start_frame = -samples_to_frames(ref_start, config.hop_length)
         ref_end = self.audio.frames_since(self.data.recording_end)
-        n = ref_end - ref_start
-        end_frame = ref_start + samples_to_frames(n, config.hop_length)
+        n = self.data.recording_end - self.data.recording_start
+        n_frames = samples_to_frames(n, config.hop_length)
+        end_frame = start_frame + n_frames
+        if end_frame > 0:
+            end_frame = 0
         tg = self.tg[start_frame:end_frame]
         bpm = self.tempo(tg)[0]
         onsets = self.detect_onsets(start_frame)

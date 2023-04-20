@@ -627,15 +627,47 @@ if __name__ == "__main__":
             dtype=np.complex64,
             buffer=rec.shm.buf[rec.cstruct.stft.offset :],
         )
+        ap1 = mp.Process(target=analysis, args=(N,))
+        ap2 = mp.Process(target=a2, args=(N,))
+        ap1.start()
+        ap2.start()
+        time.sleep(0.1)
+        for i in range(0, len(wav) // 1, config.blocksize):
+            # TODO: possibly increment all counters in main thread, or just use
+            # the audio counter, to make sure processes are in sync - poll time
+            # causes delays currently, therefore removed
+            rec.audio.write(wav[i : i + config.blocksize, None])
+            # print("writing done")
+            if i == 0:
+                time.sleep(0.01)
+                print("written 0")
+            time.sleep(0.0026666)
 
-        ap = mp.Process(target=analysis, args=(N,))
-        ap.start()
-        for i in range(0, len(wav) // 1, 256):
-            rec.ca.write(wav[i : i + 256, None])
-            rec.data.do_stft = True
-            time.sleep(0.0005)
+        rec.data.analysis_action = 1
+        rec.data.recording_start = int(rec.data.counter)
 
+        for i in range(0, len(wav) // 1, config.blocksize):
+            # TODO: possibly increment all counters in main thread, or just use
+            # the audio counter, to make sure processes are in sync - poll time
+            # causes delays currently, therefore removed
+            rec.audio.write(wav[i : i + config.blocksize, None])
+            # print("writing done")
+            if i == 0:
+                # time.sleep(0.01)
+                print("written 0.2")
+            time.sleep(0.002666)
+
+        # rec.data.analysis_action = 1
+        rec.data.recording_end = rec.data.recording_start
+        del tg, stft
         # print(f"{tg=}, {tg.any()}, {stft=}")
-        plt.imshow(tg)
-        plt.savefig("test.png")
-    ap.terminate()
+        # plt.imshow(tg)
+        # plt.savefig("test.png")
+        rec.data.quit = True
+        time.sleep(0.2)
+        ap1.join()
+        ap2.join()
+        ap1.close()
+        ap2.close()
+    # rec.shm.close()
+    # rec.shm.unlink()

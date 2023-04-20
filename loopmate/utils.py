@@ -72,6 +72,7 @@ class Metre:
 
 
 class StreamTime:
+    # TODO: may precompute delays to save some precious cycles
     def __init__(self, time, frame, n_frames):
         self.frame = frame
         self.n_frames = n_frames
@@ -166,6 +167,7 @@ class PeakTracker:
         if self.absolute:
             return self.absolute[-1] - self.current_step
         else:
+            # Sufficiently large negative number indicates there's no last peak
             return -100000
 
     @property

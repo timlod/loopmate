@@ -130,8 +130,6 @@ def make_recording_struct(
     class CRecording(ctypes.Structure):
         _fields_ = [
             ### Everything before write_counter is used for IPC
-            # Flag to trigger stft
-            ("do_stft", ctypes.c_bool),
             ## Indicate to analysis thread that an action should be performed
             # Number of recording (to allow for multiple simultaneous
             # recordings)
@@ -224,6 +222,8 @@ class RecAnalysis:
             SharedInt(self.shm, cstruct.write_counter.offset),
             SharedInt(self.shm, cstruct.counter.offset),
         )
+        self.last_counter = int(self.audio.counter)
+
         stft_counter = SharedInt(self.shm, cstruct.stft_counter.offset)
         onset_env_counter = SharedInt(
             self.shm, cstruct.onset_env_counter.offset
@@ -281,13 +281,13 @@ class RecAnalysis:
             self.do()
 
     def do(self):
-        while not self.data.do_stft:
+        while self.data.counter == self.last_counter:
             if self.data.quit:
                 return
             # Currently causes delays
             # time.sleep(self.poll_time)
+        self.last_counter = self.data.counter
         self.fft()
-        self.data.do_stft = False
 
     def fft(self):
         stft = np.fft.rfft(self.window * self.audio[-config.n_fft :].mean(-1))

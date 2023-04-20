@@ -25,6 +25,25 @@ from loopmate.utils import (
 )
 
 
+def closest_distance(onsets, grid, beat_len):
+    dm = sp.spatial.distance_matrix(onsets[:, None], grid[:, None])
+    return np.mean(np.sort(dm, axis=0)[:2, :].round())
+
+
+def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
+    beat_len = sr // (bpm / 60)
+    N = np.ceil(onsets[-1] / beat_len)
+    # Add subdivision?
+    grid = np.arange(0, N * beat_len, beat_len)
+
+    def closure(offset):
+        d = closest_distance(onsets + offset, grid, beat_len)
+        return d
+
+    res = sp.optimize.minimize(closure, x0=x0, **kwargs)
+    return int(res.x)
+
+
 class Recording:
     """
     Class that encapsulates several actions which can be performed on recorded

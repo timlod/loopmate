@@ -161,7 +161,9 @@ def make_recording_struct(
             # Flag to indicate that analysis thread has completed
             # Potentially just use the integer and have 0 signal not ready
             ("result_ready", ctypes.c_bool),
-            # Type of result that can be taken
+            # Type of result that can be taken:
+            # 9 = finished recording
+            # 8 = preliminary recording
             ("result_type", int_type),
             # Result? array?
             ("write_counter", int_type),

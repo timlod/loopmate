@@ -9,6 +9,8 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from scipy import signal as sig
+from scipy.optimize import minimize
+from scipy.spatial import distance_matrix
 
 from loopmate import config
 from loopmate.circular_array import query_circular
@@ -26,7 +28,7 @@ from loopmate.utils import (
 
 
 def closest_distance(onsets, grid, beat_len):
-    dm = sp.spatial.distance_matrix(onsets[:, None], grid[:, None])
+    dm = distance_matrix(onsets[:, None], grid[:, None])
     return np.mean(np.sort(dm, axis=0)[:2, :].round())
 
 
@@ -40,7 +42,7 @@ def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
         d = closest_distance(onsets + offset, grid, beat_len)
         return d
 
-    res = sp.optimize.minimize(closure, x0=x0, **kwargs)
+    res = minimize(closure, x0=x0, **kwargs)
     return int(res.x)
 
 

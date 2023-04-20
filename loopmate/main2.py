@@ -109,60 +109,53 @@ def plan_callback(loop: Loop):
             continue
 
 
-def stft(arr: circular_array.CircularArraySTFT, stop_event, run_stft_cond):
-    try:
-        with run_stft_cond:
-            while not stop_event.is_set():
-                run_stft_cond.wait()
-                arr.fft()
-    except Exception as e:
-        print("stopped sharing")
-        arr.stop_sharing()
-        raise e
+def analysis():
+    with lr.RecAnalysis(config.rec_n, config.channels) as rec:
+        rec.run()
+    print("done analysis")
 
 
-def analysis_callback(loop: Loop):
-    while True:
-        trigger = loop.actions.aq.get()
-        # Check for different triggers here
-        # Think about how to return results back to main thread in a good way
-        # There probably
+def a2():
+    with lr.RecA(config.rec_n, config.channels) as rec:
+        rec.run()
+    print("done a2")
 
 
 if __name__ == "__main__":
-    sa = circular_array.CircularArraySTFT(
-        config.sr * config.max_recording_length, config.channels
-    )
-    sa.make_shared(create=True)
-    se = Event()
-    run_stft_cond = Condition()
-    ap = Process(target=stft, args=(sa, se, run_stft_cond))
-    ap.start()
-    print("started")
-    print(sa)
+    with lr.RecMain(config.rec_n, config.channels) as rec:
+        ap = Process(target=analysis)
+        ap2 = Process(target=a2)
+        ap.start()
+        ap2.start()
 
-    print(sd.query_devices())
-    piano, _ = sf.read("../data/piano.wav", dtype=np.float32)
-    clave, _ = sf.read("../data/clave.wav", dtype=np.float32)
-    clave = np.concatenate(
-        (
-            1 * clave[:, None],
-            np.zeros((config.sr - len(clave), 1), dtype=np.float32),
+        print("started")
+
+        print(sd.query_devices())
+        piano, _ = sf.read("../data/piano.wav", dtype=np.float32)
+        clave, _ = sf.read("../data/clave.wav", dtype=np.float32)
+        clave = np.concatenate(
+            (
+                1 * clave[:, None],
+                np.zeros((config.sr - len(clave), 1), dtype=np.float32),
+            )
         )
-    )
-    loop = Loop(Audio(clave), run_stft_cond)
-    loop.start()
-    # hl = ExtraOutput(loop)
+        loop = Loop(rec, Audio(clave))
+        loop.start()
+        # hl = ExtraOutput(loop)
 
-    print(loop)
+        print(loop)
 
-    ps = pedalboard.PitchShift(semitones=-6)
-    ds = pedalboard.Distortion(drive_db=20)
-    delay = pedalboard.Delay(0.8, 0.1, 0.3)
-    limiter = pedalboard.Limiter()
-    loop.actions.append(Effect(0, 10000000, lambda x: limiter(x, config.sr)))
+        ps = pedalboard.PitchShift(semitones=-6)
+        ds = pedalboard.Distortion(drive_db=20)
+        delay = pedalboard.Delay(0.8, 0.1, 0.3)
+        limiter = pedalboard.Limiter()
+        loop.actions.append(
+            Effect(0, 10000000, lambda x: limiter(x, config.sr))
+        )
 
-    midi = MidiQueue(loop)
+        midi = MidiQueue(loop)
 
-    plan_thread = threading.Thread(target=plan_callback, args=(loop,))
-    plan_thread.start()
+        plan_thread = threading.Thread(target=plan_callback, args=(loop,))
+        plan_thread.start()
+        ap.join()
+        ap2.join()

@@ -354,6 +354,15 @@ class RecAnalysis:
 
 
 class RecA(RecAnalysis):
+    def __init__(self, N, channels, name="recording", poll_time=0.0001):
+        super().__init__(N, channels, name, poll_time)
+        self.tf = tempo_frequencies(
+            config.tg_win_len, config.hop_length, sr=config.sr
+        )
+        self.bpm_logprior = (
+            -0.5 * ((np.log2(self.tf) - np.log2(100)) / 1.0) ** 2
+        )[:, None]
+
     def do(self):
         while self.data.analysis_action == 0:
             if self.data.quit:
@@ -435,6 +444,22 @@ class RecA(RecAnalysis):
                 last_onset = i
 
         return np.array(peaks)
+
+    def quantize_end(self):
+        ref_start = self.audio.frames_since(self.data.recording_start)
+        ref_end = self.audio.frames_since(self.data.recording_end)
+        tg = self.tg[-samples_to_frames(ref_start) :]
+        bpm = self.tempo(tg)
+        onsets = self.detect_onsets(ref_start)
+
+    def tempo(self, tg, agg=np.mean):
+        # From librosa.feature.rhythm
+        if agg is not None:
+            tg = agg(tg, axis=-1, keepdims=True)
+        best_period = np.argmax(
+            np.log1p(1e6 * tg) + self.bpm_logprior, axis=-2
+        )
+        return np.take(self.tf, best_period)
 
     def bpm_quantize_start(self):
         pass

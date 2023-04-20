@@ -96,21 +96,16 @@ class Audio:
 
 
 class Loop:
-    def __init__(self, anchor: Audio | None = None, mp_cond=None):
-        self.mp_cond = mp_cond
+    def __init__(self, recording, anchor: Audio | None = None):
         self.audios = []
         self.new_audios = queue.Queue()
         self.anchor = anchor
         if anchor is not None:
             self.audios.append(anchor)
 
+        self.recording = recording
         # Always record audio buffers so we can easily look back for loopables
-        self.recent_audio = CircularArray(
-            config.sr * config.max_recording_length, config.channels
-        )
-        self.recent_audio.make_shared()
-
-        self.recording = None
+        self.rec_audio = self.recording.audio
 
         # Global actions applied to fully mixed audio
         self.actions = Actions()
@@ -168,7 +163,7 @@ class Loop:
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
-            self.recent_audio.write(indata)
+            self.rec_audio.write(indata)
 
             outdata[:] = 0.0
             for audio in self.audios:
@@ -185,9 +180,6 @@ class Loop:
                 0 if self.anchor is None else self.anchor.current_frame
             )
             self.actions.run(outdata, current_frame, next_frame)
-            # Notify whenever we finished one iteration
-            with self.mp_cond:
-                self.mp_cond.notify()
 
         return callback
 
@@ -230,7 +222,7 @@ class Loop:
         print(f"Backcapture {n=}!")
         t = self.stream.time
         recording = Recording(
-            self.recent_audio,
+            self.rec_audio,
             self.callback_time,
             self.stream.time,
             self.anchor.loop_length if self.anchor is not None else None,
@@ -258,7 +250,7 @@ class Loop:
         """
         ll = 0 if self.anchor is None else self.anchor.loop_length
         self.actions.append(Sample(CLAVE, ll, 1.5))
-        at_sample = self.recent_audio.counter
+        at_sample = self.rec_audio.counter
         indelay_frames = round(self.callback_time.input_delay * config.sr)
         wait_for = (
             200
@@ -266,10 +258,10 @@ class Loop:
             + round(self.callback_time.input_delay * 1000)
         )
         sd.sleep(wait_for)
-        after = self.recent_audio.counter
+        after = self.rec_audio.counter
         frames_waited = after - at_sample
-        recent_audio = self.recent_audio[-frames_waited + indelay_frames :]
-        delay = recent_audio.sum(-1).argmax()
+        rec_audio = self.rec_audio[-frames_waited + indelay_frames :]
+        delay = rec_audio.sum(-1).argmax()
         return delay
 
 

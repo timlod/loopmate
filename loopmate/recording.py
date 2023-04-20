@@ -453,7 +453,7 @@ class RecA(RecAnalysis):
         n = ref_end - ref_start
         end_frame = ref_start + samples_to_frames(n, config.hop_length)
         tg = self.tg[start_frame:end_frame]
-        bpm = self.tempo(tg)
+        bpm = self.tempo(tg)[0]
         onsets = self.detect_onsets(start_frame)
         beat_len = (config.sr // config.hop_length) // (bpm / 60)
         offset = find_offset(onsets, bpm, config.sr, method="Powell")

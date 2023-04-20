@@ -451,10 +451,35 @@ class RecA(RecAnalysis):
 
     def quantize_end(self):
         ref_start = self.audio.frames_since(self.data.recording_start)
+        start_frame = -samples_to_frames(ref_start, config.hop_length)
         ref_end = self.audio.frames_since(self.data.recording_end)
-        tg = self.tg[-samples_to_frames(ref_start) :]
+        n = ref_end - ref_start
+        end_frame = ref_start + samples_to_frames(n, config.hop_length)
+        tg = self.tg[start_frame:end_frame]
         bpm = self.tempo(tg)
-        onsets = self.detect_onsets(ref_start)
+        onsets = self.detect_onsets(start_frame)
+        beat_len = (config.sr // config.hop_length) // (bpm / 60)
+        offset = find_offset(onsets, bpm, config.sr, method="Powell")
+        if abs(offset) > 512:
+            print(f"Predicted {offset / config.sr} miss!")
+            # If within 100ms of a subdivision we assume offbeat start:
+            # TODO: missing one case here based on direction of difference
+            if beat_len / 2 - abs(offset) < 0.1 * config.sr:
+                print(f"Offset changed from {offset} to {beat_len / 2}")
+                offset = offset - np.sign(offset) * beat_len / 2
+
+        # Option: Just extrapolate BPM from start in any case
+        n_beats = round(n / beat_len)
+        end = ref_start + n_beats * beat_len
+        if end > self.audio.counter:
+            sd.sleep((end - self.audio.counter) / config.sr * 1000)
+        self.data.recording_end = end
+        self.data.result_type = 9
+
+    def prelim_audio(self):
+        # Give a preliminary audio snippet whose end point may still change
+        # according to end quantization
+        self.data
 
     def tempo(self, tg, agg=np.mean):
         # From librosa.feature.rhythm

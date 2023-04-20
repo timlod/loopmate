@@ -94,6 +94,9 @@ class Audio:
         self.loop_length = self.loop_length * self.n_loop_iter
         self.n_loop_iter = 1
 
+    def __repr__(self):
+        return f"{self.n=}, {self.audio.shape=}, {self.loop_length=}, {self.n_loop_iter=}, {self.current_frame=}"
+
 
 class Loop:
     def __init__(self, recording, anchor: Audio | None = None):

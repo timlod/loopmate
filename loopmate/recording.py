@@ -123,25 +123,9 @@ def int_to_channels(value: int) -> list[int]:
 def make_recording_struct(
     N,
     channels,
-    analysis=False,
     int_type=ctypes.c_int64,
 ):
     N_stft = int(np.ceil(N / config.hop_length))
-    analysis_add = [
-        ("stft_counter", int_type),
-        (
-            "stft",
-            ctypes.c_float * (2 * (1 + int(config.n_fft / 2)) * N_stft),
-        ),
-        ("onset_env_counter", int_type),
-        ("onset_env", ctypes.c_float * N_stft),
-        ("mov_max", ctypes.c_float * N_stft),
-        ("mov_avg", ctypes.c_float * N_stft),
-        ("tg_counter", int_type),
-        ("tg", ctypes.c_float * config.tg_win_len * N_stft),
-        ("analysis_action", int_type),
-        ("quit", ctypes.c_bool),
-    ]
 
     class CRecording(ctypes.Structure):
         _fields_ = [
@@ -169,20 +153,33 @@ def make_recording_struct(
             ("write_counter", int_type),
             ("counter", int_type),
             ("data", ctypes.c_float * (N * channels)),
-        ] + (analysis_add if analysis else [])
+            ("stft_counter", int_type),
+            (
+                "stft",
+                ctypes.c_float * (2 * (1 + int(config.n_fft / 2)) * N_stft),
+            ),
+            ("onset_env_counter", int_type),
+            ("onset_env", ctypes.c_float * N_stft),
+            ("mov_max", ctypes.c_float * N_stft),
+            ("mov_avg", ctypes.c_float * N_stft),
+            ("tg_counter", int_type),
+            ("tg", ctypes.c_float * config.tg_win_len * N_stft),
+            ("analysis_action", int_type),
+            ("quit", ctypes.c_bool),
+        ]
 
     return CRecording
 
 
 class RecMain:
     def __init__(self, N, channels, name="recording"):
-        cstruct = make_recording_struct(N, channels, True)
+        cstruct = make_recording_struct(N, channels)
         self.cstruct = cstruct
         self.shm = SharedMemory(
             name=name, create=True, size=ctypes.sizeof(cstruct)
         )
         self.data = cstruct.from_buffer(self.shm.buf)
-        self.ca = CircularArray(
+        self.audio = CircularArray(
             np.ndarray(
                 (N, channels),
                 dtype=np.float32,
@@ -200,7 +197,7 @@ class RecMain:
         # Without this deletion, we'll get a BufferError, even though
         # https://docs.python.org/3/library/multiprocessing.shared_memory.html#multiprocessing.shared_memory.SharedMemory.close
         # states it's unnecessary
-        del (self.data, self.ca)
+        del (self.data, self.audio)
         self.shm.close()
         self.shm.unlink()
         print("exiting unlinked")
@@ -212,7 +209,7 @@ class RecAnalysis:
         self.poll_time = poll_time
 
         self.N_stft = int(np.ceil(N / config.hop_length))
-        cstruct = make_recording_struct(N, channels, True)
+        cstruct = make_recording_struct(N, channels)
 
         self.shm = SharedMemory(
             name=name, create=False, size=ctypes.sizeof(cstruct)

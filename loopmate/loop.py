@@ -197,26 +197,58 @@ class Loop:
             print(f"Stopping stream action. {self.anchor.current_frame}")
             self.actions.actions.append(Stop(self.anchor.current_frame))
 
-    def record(self):
+    def event_counter(self):
         t = self.stream.time
-        if self.recording is None:
-            print("REC START")
-            self.recording = Recording(
-                self.recent_audio,
-                self.callback_time,
-                self.stream.time,
-                self.anchor.loop_length if self.anchor is not None else None,
-            )
-        else:
-            # If no loop, use bpm quantization
-            print("REC FINISH")
-            audio = self.recording.finish(t, self.callback_time)
-            if audio is None:
-                print("Empty recording!")
-            else:
-                self.add_track(audio)
-            self.recording = None
+        frames_since = round(self.callback_time.timediff(t) * config.sr)
+        return (
+            self.rec_audio.counter
+            + frames_since
+            + round(self.callback_time.input_delay * config.sr)
+        )
+
+    def start_record(self):
+        self.recording.data.recording_start = self.event_counter()
+        self.recording.data.analysis_action = 1
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
+
+    def stop_record(self):
+        self.recording.data.recording_end = self.event_counter()
+        print(f"{self.recording.data.recording_end=}")
+        self.recording.data.analysis_action = 2
+        while self.recording.data.result_type < 8:
+            sd.sleep(5)
+        N = (
+            self.recording.data.recording_end
+            - self.recording.data.recording_start
+        )
+        start_back = -self.recording.audio.frames_since(
+            self.recording.data.recording_start
+        )
+        print(
+            f"{start_back=}, {self.recording.audio.counter=}, {self.recording.data.recording_start=}, {self.recording.data.recording_end=} {N=}"
+        )
+
+        rec = self.recording.audio[start_back:][:N]
+        audio = Audio(rec, loop_length=N)
+        print(audio)
+        self.add_track(audio)
+        while self.recording.data.result_type != 9:
+            sd.sleep(5)
+        start_back = -self.recording.audio.frames_since(
+            self.recording.data.recording_start
+        )
+        print(f"{start_back=}, {self.recording.audio.counter=}")
+        rec = self.recording.audio[start_back:][:N]
+        rec[-config.blend_frames :] = (
+            RAMP * rec[-config.blend_frames :]
+            + (1 - RAMP)
+            * self.recording.audio[
+                start_back - config.blend_frames : start_back
+            ]
+        )
+        audio.audio = rec
+        self.recording.data.result_type = 0
+        print(audio)
 
     def backcapture(self, n):
         print(f"Backcapture {n=}!")

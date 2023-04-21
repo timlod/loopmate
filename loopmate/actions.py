@@ -221,14 +221,14 @@ class Start(Action):
 
 
 class Stop(Action):
-    def __init__(self, start: int, priority: int = 100):
+    def __init__(self, start: int, loop_length: int, priority: int = 100):
         """Initialize effect which will fade in at a certain frame.
 
         :param start: start effect at this frame (inside looped audio)
         :param priority: indicate priority at which to queue this action
         """
         blend = CrossFade()
-        super().__init__(start, start + blend.n, loop=False)
+        super().__init__(start, start + blend.n, loop_length, loop=False)
         self.blend = blend
 
     def do(self, data):

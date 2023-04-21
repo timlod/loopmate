@@ -198,7 +198,10 @@ class Loop:
     def stop(self):
         if self.anchor is not None:
             print(f"Stopping stream action. {self.anchor.current_frame}")
-            self.actions.actions.append(Stop(self.anchor.current_frame))
+            # self.actions.actions.append(
+            #     Stop(self.anchor.current_frame, self.anchor.loop_length)
+            # )
+            self.stream.stop()
 
     def event_counter(self):
         t = self.stream.time

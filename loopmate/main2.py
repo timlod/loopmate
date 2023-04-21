@@ -95,6 +95,12 @@ class MidiQueue:
                 self.loop.audios[-1].audio = delay(
                     self.loop.audios[-1].audio, config.sr, reset=False
                 )
+            elif message.note == 41:
+                self.loop.recording.data.quit = True
+                self.loop.actions.plans.put_nowait(True)
+                # Need to clean up all shared memory :/
+                del self.loop.rec_audio
+                self.loop.stop()
 
 
 def plan_callback(loop: Loop):
@@ -107,6 +113,8 @@ def plan_callback(loop: Loop):
         elif isinstance(trigger, BackCaptureTrigger):
             loop.backcapture(trigger.n_loops)
             continue
+        elif isinstance(trigger, bool):
+            break
 
 
 def analysis():
@@ -159,3 +167,5 @@ if __name__ == "__main__":
         plan_thread.start()
         ap.join()
         ap2.join()
+        plan_thread.join()
+        sd.sleep(10)

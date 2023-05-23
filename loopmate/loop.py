@@ -435,7 +435,7 @@ class Recording:
         """
         frames_since = round(callback_time.timediff(t) * config.sr)
         return (
-            self.rec.counter
+            self.rec_audio.counter
             + frames_since
             + round(callback_time.input_delay * config.sr)
         ), frames_since

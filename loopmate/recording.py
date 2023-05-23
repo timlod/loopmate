@@ -477,10 +477,8 @@ class RecA(RecAnalysis):
         print(f"{bpm=}, {n_beats=}, {ref_start=}, {beat_len=}")
         end = self.data.recording_start + n_beats * beat_len
         self.data.recording_end = end
-        if end > self.audio.counter:
+        while end > self.audio.counter:
             self.data.result_type = 8
-            print(f"{end=}, {self.audio.counter=}")
-            sd.sleep(int((end - self.audio.counter) / config.sr * 1000))
         self.data.result_type = 9
 
     def prelim_audio(self):

@@ -33,6 +33,8 @@ def closest_distance(onsets, grid, beat_len):
 
 
 def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
+    if len(onsets) == 0:
+        return 0
     beat_len = sr // (bpm / 60)
     N = np.ceil(onsets[-1] / beat_len)
     # Add subdivision?

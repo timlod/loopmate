@@ -193,14 +193,14 @@ class RecMain:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        print("exiting")
+        print("exiting RecMain")
         # Without this deletion, we'll get a BufferError, even though
         # https://docs.python.org/3/library/multiprocessing.shared_memory.html#multiprocessing.shared_memory.SharedMemory.close
         # states it's unnecessary
         del (self.data, self.audio)
         self.shm.close()
         self.shm.unlink()
-        print("exiting unlinked")
+        print("Unlinked!")
 
 
 class RecAnalysis:
@@ -341,7 +341,7 @@ class RecAnalysis:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        print("closing")
+        print("Exiting RecAnalysis")
         del (
             self.data,
             self.audio,
@@ -352,8 +352,7 @@ class RecAnalysis:
             self.mov_max,
         )
         self.shm.close()
-        print("closed")
-        self.shm.close()
+        print("Closed RecAnalysis SHM")
 
 
 class RecA(RecAnalysis):
@@ -370,12 +369,15 @@ class RecA(RecAnalysis):
         while self.data.analysis_action == 0:
             if self.data.quit:
                 return
-            time.sleep(self.poll_time)
+            # time.sleep(self.poll_time)
         # TODO: store and pass along start and end events through shm
         match self.data.analysis_action:
             case 1:
-                print("Doing 1")
+                print("RECA: Quantize start")
                 self.quantize_start()
+            case 2:
+                print("RECA: Quantize end")
+                self.quantize_end()
 
         self.data.analysis_action = 0
 

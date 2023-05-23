@@ -220,6 +220,14 @@ class Loop:
     def stop_record(self):
         self.recording.data.recording_end = self.event_counter()
         print(f"{self.recording.data.recording_end=}")
+        if self.recording.data.analysis_action != 0:
+            # This will happen if record toggled twice in quick succession, of
+            # if there is a problem with computing the start quantization in
+            # time. Do investigate if this happens even if given time!
+            print("Got stop command with start still in progress. Aborting!")
+            self.recording.data.analysis_action = 0
+            return
+
         self.recording.data.analysis_action = 2
         while self.recording.data.result_type < 8:
             sd.sleep(5)

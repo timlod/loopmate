@@ -230,7 +230,7 @@ class Loop:
 
         self.recording.data.analysis_action = 2
         while self.recording.data.result_type < 8:
-            sd.sleep(5)
+            sd.sleep(0)
         N = (
             self.recording.data.recording_end
             - self.recording.data.recording_start

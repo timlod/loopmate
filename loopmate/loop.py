@@ -227,7 +227,7 @@ class Loop:
             self.recording.data.recording_end
             - self.recording.data.recording_start
         )
-        start_back = -self.recording.audio.frames_since(
+        start_back = -self.recording.audio.elements_since(
             self.recording.data.recording_start
         )
         print(
@@ -239,8 +239,8 @@ class Loop:
         print(audio)
         self.add_track(audio)
         while self.recording.data.result_type != 9:
-            sd.sleep(5)
-        start_back = -self.recording.audio.frames_since(
+            sd.sleep(0)
+        start_back = -self.recording.audio.elements_since(
             self.recording.data.recording_start
         )
         print(f"{start_back=}, {self.recording.audio.counter=}")

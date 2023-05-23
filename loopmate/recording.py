@@ -388,7 +388,7 @@ class RecA(RecAnalysis):
         sd.sleep(wait_for_ms + int(det_delay_s * 1000))
         # We want to check recording_start, so the reference is the frames
         # since then
-        ref = self.audio.frames_since(self.data.recording_start)
+        ref = self.audio.elements_since(self.data.recording_start)
         # We want to get this many samples before the reference as well
         lookaround_samples = int(wait_for_ms / 1000 * config.sr)
         start = ref + lookaround_samples
@@ -449,9 +449,9 @@ class RecA(RecAnalysis):
         return np.array(peaks)
 
     def quantize_end(self):
-        ref_start = self.audio.frames_since(self.data.recording_start)
+        ref_start = self.audio.elements_since(self.data.recording_start)
         start_frame = -samples_to_frames(ref_start, config.hop_length)
-        ref_end = self.audio.frames_since(self.data.recording_end)
+        ref_end = self.audio.elements_since(self.data.recording_end)
         n = self.data.recording_end - self.data.recording_start
         n_frames = samples_to_frames(n, config.hop_length)
         end_frame = start_frame + n_frames
@@ -569,7 +569,7 @@ class CircularArray:
             else:
                 return i
 
-    def frames_since(self, c0):
+    def elements_since(self, c0):
         return self.counter - c0
 
     def write(self, arr, increment=True):

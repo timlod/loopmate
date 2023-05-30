@@ -238,10 +238,6 @@ class Loop:
         start_back = -self.recording.audio.elements_since(
             self.recording.data.recording_start
         )
-        print(
-            f"{start_back=}, {self.recording.audio.counter=}, {self.recording.data.recording_start=}, {self.recording.data.recording_end=} {N=}"
-        )
-
         rec = self.recording.audio[start_back:][:N]
         n = loop_length = N
         n_loop_iter = int(2 * np.ceil(np.log2(n / loop_length)))
@@ -250,14 +246,17 @@ class Loop:
         if n > n_loop_iter * loop_length:
             n = n % loop_length
         audio = Audio(rec, loop_length=loop_length, current_frame=n)
-        print(audio)
         self.add_track(audio)
+
+        # We added the track, but it may not yet be completed (if pressed
+        # before the quantized end event, or simply because of input lag) - we
+        # add the track so we can immediately start playback of the loop, but
+        # finalize it here asap
         while self.recording.data.result_type != 9:
             sd.sleep(0)
         start_back = -self.recording.audio.elements_since(
             self.recording.data.recording_start
         )
-        print(f"{start_back=}, {self.recording.audio.counter=}")
         rec = self.recording.audio[start_back:][:N]
         rec[-config.blend_frames :] = (
             RAMP * rec[-config.blend_frames :]

@@ -378,38 +378,29 @@ class AnalysisOnDemand(RecAnalysis):
 
         self.data.analysis_action = 0
 
-    def quantize_start(self, lenience=config.sr * 0.1):
-        # Sleep for a bit to make sure we account for bad timing, as well as
-        # the delay from onset detection
-        det_delay_s = config.onset_det_offset * config.hop_length / config.sr
-        wait_for_ms = 250
-        lookaround_samples = int(wait_for_ms / 1000 * config.sr)
-        # Wait for wait_for_ms as well as the onset detection delay
-        sd.sleep(wait_for_ms + int(det_delay_s * 1000))
-        # We want to check recording_start, so the reference is the frames
-        # since then
-        ref = self.audio.elements_since(self.data.recording_start)
-        # We want to get this many samples before the reference as well
+    def detect_onsets(self, start):
+        o = -config.onset_det_offset
+        wc = self.onset_env.write_counter
+        onset_env = self.onset_env[start:o]
+        mov_max = query_circular(self.mov_max, slice(start, o), wc)
+        mov_avg = query_circular(self.mov_avg, slice(start, o), wc)
+        detections = onset_env * (onset_env == mov_max)
+        # Then mask out all entries less than the thresholded average
+        detections = detections * (detections >= (mov_avg + config.delta))
 
-        start = ref + lookaround_samples
-        start_frames = -samples_to_frames(start, config.hop_length)
-        # In practice, the algorithm finds the onset somewhat later, so
-        # we decrement by one to be closer to the actual onset
-        onsets = self.detect_onsets(start_frames)
-        # Currently, it's very possible that the actual press gets an onset
-        # detection, even if quit, which will obviously be the closest one to
-        # quantize to. Therefore, let's weight by distance from press and size
-        # of the peak. subtract one frame after checking height
-        onsets = frames_to_samples(
-            onsets - samples_to_frames(lookaround_samples, config.hop_length),
-            config.hop_length,
-        )
-        print(f"RECA: onsets (start): {onsets}")
-        _, move = self.quantize_onsets(onsets, lookaround_samples, oe)
-        print(
-            f"RECA: Moving from {self.data.recording_start=}, {move} to {self.data.recording_start + move}!"
-        )
-        self.data.recording_start += move
+        # Initialize peaks array, to be filled greedily
+        peaks = []
+
+        # Remove onsets which are close together in time
+        last_onset = -np.inf
+        for i in np.nonzero(detections)[0]:
+            # Only report an onset if the "wait" samples was reported
+            if i > last_onset + config.wait:
+                peaks.append(i)
+                # Save last reported onset
+                last_onset = i
+
+        return np.array(peaks)
 
     def quantize_onsets(
         self,
@@ -477,29 +468,38 @@ class AnalysisOnDemand(RecAnalysis):
 
         return move, move
 
-    def detect_onsets(self, start):
-        o = -config.onset_det_offset
-        wc = self.onset_env.write_counter
-        onset_env = self.onset_env[start:o]
-        mov_max = query_circular(self.mov_max, slice(start, o), wc)
-        mov_avg = query_circular(self.mov_avg, slice(start, o), wc)
-        detections = onset_env * (onset_env == mov_max)
-        # Then mask out all entries less than the thresholded average
-        detections = detections * (detections >= (mov_avg + config.delta))
+    def quantize_start(self, lenience=config.sr * 0.1):
+        # Sleep for a bit to make sure we account for bad timing, as well as
+        # the delay from onset detection
+        det_delay_s = config.onset_det_offset * config.hop_length / config.sr
+        wait_for_ms = 250
+        lookaround_samples = int(wait_for_ms / 1000 * config.sr)
+        # Wait for wait_for_ms as well as the onset detection delay
+        sd.sleep(wait_for_ms + int(det_delay_s * 1000))
+        # We want to check recording_start, so the reference is the frames
+        # since then
+        ref = self.audio.elements_since(self.data.recording_start)
+        # We want to get this many samples before the reference as well
 
-        # Initialize peaks array, to be filled greedily
-        peaks = []
-
-        # Remove onsets which are close together in time
-        last_onset = -np.inf
-        for i in np.nonzero(detections)[0]:
-            # Only report an onset if the "wait" samples was reported
-            if i > last_onset + config.wait:
-                peaks.append(i)
-                # Save last reported onset
-                last_onset = i
-
-        return np.array(peaks)
+        start = ref + lookaround_samples
+        start_frames = -samples_to_frames(start, config.hop_length)
+        # In practice, the algorithm finds the onset somewhat later, so
+        # we decrement by one to be closer to the actual onset
+        onsets = self.detect_onsets(start_frames)
+        # Currently, it's very possible that the actual press gets an onset
+        # detection, even if quit, which will obviously be the closest one to
+        # quantize to. Therefore, let's weight by distance from press and size
+        # of the peak. subtract one frame after checking height
+        onsets = frames_to_samples(
+            onsets - samples_to_frames(lookaround_samples, config.hop_length),
+            config.hop_length,
+        )
+        print(f"RECA: onsets (start): {onsets}")
+        _, move = self.quantize_onsets(onsets, lookaround_samples, oe)
+        print(
+            f"RECA: Moving from {self.data.recording_start=}, {move} to {self.data.recording_start + move}!"
+        )
+        self.data.recording_start += move
 
     def quantize_end(self):
         ref_start = self.audio.elements_since(self.data.recording_start)

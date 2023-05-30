@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
-from multiprocessing import Condition, Event, Process
+from multiprocessing import Process
 
 import mido
 import numpy as np
@@ -10,7 +10,7 @@ import pedalboard
 import sounddevice as sd
 import soundfile as sf
 
-from loopmate import circular_array, config, recording as lr, utils
+from loopmate import config, recording as lr
 from loopmate.actions import (
     BackCaptureTrigger,
     Effect,
@@ -18,7 +18,7 @@ from loopmate.actions import (
     MuteTrigger,
     RecordTrigger,
 )
-from loopmate.loop import Audio, ExtraOutput, Loop
+from loopmate.loop import Audio, Loop
 
 mido.ports.set_sleep_time(0)
 delay = pedalboard.Delay(0.8, 0.4, 0.3)

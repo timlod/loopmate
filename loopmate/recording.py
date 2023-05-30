@@ -2,9 +2,7 @@ import ctypes
 import multiprocessing as mp
 import time
 from multiprocessing.shared_memory import SharedMemory
-from typing import Optional, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -14,7 +12,6 @@ from scipy.spatial import distance_matrix
 
 from loopmate import config
 from loopmate.circular_array import CircularArray, query_circular
-from loopmate.loop import Audio
 from loopmate.utils import (
     EMA_MinMaxTracker,
     PeakTracker,

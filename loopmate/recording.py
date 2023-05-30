@@ -414,7 +414,7 @@ class RecA(RecAnalysis):
         )
         self.data.recording_start += move
 
-    def quantize_onsets_weighted(
+    def quantize_onsets(
         self,
         onsets,
         offset,

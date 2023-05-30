@@ -515,11 +515,8 @@ class RecA(RecAnalysis):
             end_frame = 0
         # print(f"{ref_start=}, {start_frame=}, {ref_end=}, {end_frame=}, {n=}")
         tg = self.tg[start_frame:end_frame]
-        # not needed here
-        onset_env = self.onset_env[start_frame : -config.onset_det_offset]
-        audio = self.audio[-ref_start : min(0, -ref_start + n)]
         onsets = self.detect_onsets(start_frame)
-        bpm = self.tempo(tg, onsets, onset_env, audio)[0]
+        bpm = self.tempo(tg)[0]
         beat_len = int(config.sr / (bpm / 60))
         offset = find_offset(
             onsets * config.hop_length, bpm, config.sr, method="Powell"
@@ -541,14 +538,8 @@ class RecA(RecAnalysis):
             self.data.result_type = 8
         self.data.result_type = 9
 
-    def prelim_audio(self):
-        # Give a preliminary audio snippet whose end point may still change
-        # according to end quantization
-        self.data
-
-    def tempo(self, tg, onsets, onset_env, audio, agg=np.mean):
+    def tempo(self, tg, agg=np.mean):
         # From librosa.feature.rhythm
-        print(f"end {onsets=}")
         best_period = np.argmax(
             np.log1p(1e6 * tg) + self.bpm_logprior, axis=-2
         )

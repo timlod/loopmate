@@ -409,53 +409,10 @@ class RecA(RecAnalysis):
         )
         print(f"RECA: onsets (start): {onsets}")
         _, move = self.quantize_onsets(onsets, lookaround_samples, oe)
-        start = (
-            self.audio.elements_since(self.data.recording_start)
-            + lookaround_samples
-        )
-        audio = self.audio[
-            -start : -frames_to_samples(
-                config.onset_det_offset, config.hop_length
-            )
-        ]
-        # We added the offset to start frames, so we remove it here
-        lookaround_frames = samples_to_frames(
-            lookaround_samples, config.hop_length
-        )
-        start_frames = -samples_to_frames(start, config.hop_length)
-        oe = self.onset_env[start_frames : -config.onset_det_offset]
-        fig, axs = plt.subplots(2, 1, figsize=(22, 4))
-        x = np.arange(len(audio))
-        axs[0].plot(x[:lookaround_samples], audio[:lookaround_samples])
-        axs[0].plot(x[lookaround_samples:], audio[lookaround_samples:])
-        axs[0].vlines(
-            onsets + lookaround_samples,
-            -0.25,
-            0.25,
-            "red",
-        )
-        x = np.arange(len(oe))
-        axs[1].plot(x[:lookaround_frames], oe[:lookaround_frames])
-        axs[1].plot(x[lookaround_frames:], oe[lookaround_frames:])
-        axs[1].vlines(
-            samples_to_frames(onsets + lookaround_samples, config.hop_length),
-            0,
-            0.5,
-            "red",
-        )
-        plt.savefig("oe.png")
-
         print(
             f"RECA: Moving from {self.data.recording_start=}, {move} to {self.data.recording_start + move}!"
         )
-        # back = self.audio.frames_since(self.data.recording_start)
-        # plt.figure()
-        # plt.plot(self.audio[-back - lookaround_samples :])
-        # plt.vlines(onsets + lookaround_samples, -0.5, 0.5, "red")
-        # plt.vlines([move], -0.5, 0.5, "green")
-        # plt.savefig("start.png")
         self.data.recording_start += move
-        # self.data.analysis_action = 0
 
     def quantize_onsets(
         self, frame, onsets, lenience=round(config.sr * 0.1)
@@ -616,17 +573,9 @@ class RecA(RecAnalysis):
     def tempo(self, tg, onsets, onset_env, audio, agg=np.mean):
         # From librosa.feature.rhythm
         print(f"end {onsets=}")
-        # fig, axs = plt.subplots(4, figsize=(20, 25))
-        # axs[0].imshow(tg)
-        # axs[1].plot(onset_env)
-        # axs[1].vlines(onsets, 0, 0.8, "red")
         best_period = np.argmax(
             np.log1p(1e6 * tg) + self.bpm_logprior, axis=-2
         )
-
-        # axs[2].plot(np.take(self.tf, best_period))
-        # axs[3].plot(audio)
-        # plt.savefig("test.png")
         if agg is not None:
             tg = agg(tg, axis=-1, keepdims=True)
         best_period = np.argmax(

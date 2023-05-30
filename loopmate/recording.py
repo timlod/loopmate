@@ -477,24 +477,19 @@ class RecA(RecAnalysis):
             start = max(0, offset + onset - window_size)
             end = min(len(onset_envelope), offset + onset + window_size)
             strengths.append(np.max(onset_envelope[start:end]))
-            print(f"{onset=}, {start=}, {end=}, {onset_envelope[start:end]=}")
 
-        # Normalize strengths to [0, 1] range
         strengths = np.array(strengths)
-        # strengths = (strengths - np.min(strengths)) / (
-        #     np.max(strengths) - np.min(strengths)
-        # )
 
         # Calculate the distances between frame and onsets
         distances = np.abs(onsets)
 
-        # Calculate the weighted distance
-        wd = (
-            distances * (1 - strength_weight)
-            + (1 - strengths) * strength_weight * lenience
+        # Calculate the geometric mean of distance and strength weighted by
+        # strength_weight.
+        weighted_distances = (
+            distances ** (1 - strength_weight)
+            * (1 - strengths) ** strength_weight
         )
-        weighted_distances = distances * strength_weight * (1 - strengths)
-        print(f"{distances=}, {strengths=}, {wd=}, {weighted_distances=}")
+        # weighted_distances = distances * (1 - strengths) * strength_weight
 
         # Find the onset with the minimum weighted distance
         if distances[(i := weighted_distances.argmin())] < lenience:

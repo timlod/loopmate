@@ -390,6 +390,7 @@ class Recording:
         lenience: int = round(config.sr * 0.2),
     ):
         self.lenience = lenience
+        self.rec_audio = rec
         # Between pressing and the time the last callback happened are this
         # many frames
         self.rec_start, frames_since = self.recording_event(
@@ -427,8 +428,6 @@ class Recording:
             self.start_frame = 0
             self.loop_length = None
 
-        self.rec = rec
-
     def recording_event(
         self, callback_time: StreamTime, t: float
     ) -> (int, int):
@@ -464,25 +463,28 @@ class Recording:
 
         if n == 0:
             return None
-        if self.rec_stop > self.rec.counter:
+        if self.rec_stop > self.rec_audio.counter:
+            # Amount to wait may depend on latency (number of pre-queued blocks)
             wait_for = (
-                self.rec_stop - self.rec.counter + 3 * config.blocksize
+                self.rec_stop - self.rec_audio.counter + 3 * config.blocksize
             ) / config.sr
-            print(f"Missing {self.rec_stop - self.rec.counter} frames.")
+            print(f"Missing {self.rec_stop - self.rec_audio.counter} frames.")
             print(f"Waiting {wait_for}s.")
             # Need to specify sleep time in ms, add blocksize to make sure we
             # don't get a block too few
             sd.sleep(int(wait_for * 1000))
-            print(f"c: {self.rec.counter}, s: {self.rec_stop}")
-            assert self.rec.counter >= self.rec_stop
+            print(f"c: {self.rec_audio.counter}, s: {self.rec_stop}")
+            assert self.rec_audio.counter >= self.rec_stop
 
-        back = self.rec.frames_since(self.rec_stop)
+        back = self.rec_audio.elements_since(self.rec_stop)
         rec_i = -(n + back)
         print(
-            f"{rec_i=}, {back=}, {n=}, {self.rec_stop=}, {self.rec.counter=}"
+            f"{rec_i=}, {back=}, {n=}, {self.rec_stop=}, {self.rec_audio.counter=}"
         )
-        recording = self.rec[rec_i:-back]
-        self.antipop(recording, self.rec[rec_i - config.blend_frames : rec_i])
+        recording = self.rec_audio[rec_i:-back]
+        self.antipop(
+            recording, self.rec_audio[rec_i - config.blend_frames : rec_i]
+        )
 
         # We need to add the starting frame (in case we start this audio late)
         # as well as subtract the audio delay we added when we started

@@ -398,7 +398,7 @@ class RecA(RecAnalysis):
         start_frames = -samples_to_frames(start, config.hop_length)
         # In practice, the algorithm finds the onset somewhat later, so
         # we decrement by one to be closer to the actual onset
-        onsets, oe = self.detect_onsets(start_frames)
+        onsets = self.detect_onsets(start_frames)
         # Currently, it's very possible that the actual press gets an onset
         # detection, even if quit, which will obviously be the closest one to
         # quantize to. Therefore, let's weight by distance from press and size
@@ -526,7 +526,7 @@ class RecA(RecAnalysis):
                 # Save last reported onset
                 last_onset = i
 
-        return np.array(peaks), onset_env
+        return np.array(peaks)
 
     def quantize_end(self):
         ref_start = self.audio.elements_since(self.data.recording_start)
@@ -542,7 +542,7 @@ class RecA(RecAnalysis):
         # not needed here
         onset_env = self.onset_env[start_frame : -config.onset_det_offset]
         audio = self.audio[-ref_start : min(0, -ref_start + n)]
-        onsets, oe = self.detect_onsets(start_frame)
+        onsets = self.detect_onsets(start_frame)
         bpm = self.tempo(tg, onsets, onset_env, audio)[0]
         beat_len = int(config.sr / (bpm / 60))
         offset = find_offset(

@@ -118,13 +118,13 @@ def plan_callback(loop: Loop):
             break
 
 
-def analysis():
+def analysis_target():
     with lr.RecAnalysis(config.rec_n, config.channels) as rec:
         rec.run()
     print("done analysis")
 
 
-def a2():
+def ondemand_target():
     with lr.AnalysisOnDemand(config.rec_n, config.channels) as rec:
         rec.run()
     print("done a2")
@@ -132,8 +132,8 @@ def a2():
 
 if __name__ == "__main__":
     with lr.RecAudio(config.rec_n, config.channels) as rec:
-        ap = Process(target=analysis)
-        ap2 = Process(target=a2)
+        ap = Process(target=analysis_target)
+        ap2 = Process(target=ondemand_target)
         ap.start()
         ap2.start()
 

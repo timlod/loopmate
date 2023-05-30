@@ -45,44 +45,6 @@ def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
     return int(res.x)
 
 
-class Recording:
-    """
-    Class that encapsulates several actions which can be performed on recorded
-    audio, stored in a circular array.
-
-    Allow multiple recordings at the same time by means of dicts?
-    """
-
-    def __init__(self, rec, loop_length=None):
-        self.rec = rec
-        # Flag to signal whether we should be recording
-        self.started = False
-        self.loop_length = loop_length
-
-    def start(self, callback_time, t):
-        self.rec_start, frames_since = self.recording_event(callback_time, t)
-
-    def stft(self):
-        # Method to run inside AP1
-        self.rec.fft()
-
-    def recording_event(
-        self, callback_time: StreamTime, t: float
-    ) -> (int, int):
-        """Return frame in rec that aligns with time t, as well as the number
-        of frames that passed since callback_time.
-
-        :param callback_time: StreamTime of the current callback
-        :param t: sd.Stream.time to compute the frame for
-        """
-        frames_since = round(callback_time.timediff(t) * config.sr)
-        return (
-            self.rec.counter
-            + frames_since
-            + round(callback_time.input_delay * config.sr)
-        ), frames_since
-
-
 def channels_to_int(channels: tuple) -> int:
     """Map a recording channel mapping to an integer.  Supports at most 8
     concurrent channels, where the maximum channel index is 254.

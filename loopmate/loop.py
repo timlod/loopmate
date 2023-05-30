@@ -243,7 +243,13 @@ class Loop:
         )
 
         rec = self.recording.audio[start_back:][:N]
-        audio = Audio(rec, loop_length=N)
+        n = loop_length = N
+        n_loop_iter = int(2 * np.ceil(np.log2(n / loop_length)))
+        start_frame = 0
+        n += start_frame - round(self.callback_time.output_delay * config.sr)
+        if n > n_loop_iter * loop_length:
+            n = n % loop_length
+        audio = Audio(rec, loop_length=loop_length, current_frame=n)
         print(audio)
         self.add_track(audio)
         while self.recording.data.result_type != 9:

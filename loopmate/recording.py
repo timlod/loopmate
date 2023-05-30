@@ -171,7 +171,7 @@ def make_recording_struct(
     return CRecording
 
 
-class RecMain:
+class RecAudio:
     def __init__(self, N, channels, name="recording"):
         cstruct = make_recording_struct(N, channels)
         self.cstruct = cstruct
@@ -355,7 +355,7 @@ class RecAnalysis:
         print("Closed RecAnalysis SHM")
 
 
-class RecA(RecAnalysis):
+class AnalysisOnDemand(RecAnalysis):
     def __init__(self, N, channels, name="recording", poll_time=0.0001):
         super().__init__(N, channels, name, poll_time)
         self.tf = tempo_frequencies(
@@ -668,7 +668,7 @@ def analysis(N):
 
 
 def a2(N):
-    with RecA(N, 1) as rec:
+    with AnalysisOnDemand(N, 1) as rec:
         rec.run()
     print("done a2")
 
@@ -679,7 +679,7 @@ if __name__ == "__main__":
 
     N = len(wav)
 
-    with RecMain(N, 1) as rec:
+    with RecAudio(N, 1) as rec:
         N_stft = int(np.ceil(N / config.hop_length))
 
         tg = np.ndarray(

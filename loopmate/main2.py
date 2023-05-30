@@ -125,13 +125,13 @@ def analysis():
 
 
 def a2():
-    with lr.RecA(config.rec_n, config.channels) as rec:
+    with lr.AnalysisOnDemand(config.rec_n, config.channels) as rec:
         rec.run()
     print("done a2")
 
 
 if __name__ == "__main__":
-    with lr.RecMain(config.rec_n, config.channels) as rec:
+    with lr.RecAudio(config.rec_n, config.channels) as rec:
         ap = Process(target=analysis)
         ap2 = Process(target=a2)
         ap.start()

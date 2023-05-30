@@ -45,40 +45,6 @@ def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
     return int(res.x)
 
 
-def channels_to_int(channels: tuple) -> int:
-    """Map a recording channel mapping to an integer.  Supports at most 8
-    concurrent channels, where the maximum channel index is 254.
-
-    Uses a 64 bit integer to encode channel numbers, using every byte to encode
-    one channel.  If we don't add 1, we will miss the zeroth channel for
-    configurations like (0, 1), (0, 4), etc., which will be very common.
-
-    :param channels: sequence of channel numbers to map
-    """
-    assert len(channels) <= 8, "There can be at most 8 channels"
-
-    result = 0
-    for channel in channels:
-        assert channel < 255, "Channel numbers must be at most 254!"
-        result <<= 8  # Make room for the next channel number (8 bits)
-        result |= channel + 1
-    return result
-
-
-def int_to_channels(value: int) -> list[int]:
-    """Maps the output of channels_to_int back into a list of channel numbers.
-
-    Starts reading the last 8 bits of the int64 and shifts one byte to the
-    right as long as the result is not 0.
-
-    :param value: integer output of channels_to_int
-    """
-    channels = []
-    while value > 0:
-        channel = value & 0xFF  # Extract the least significant 8 bits
-        channels.insert(0, channel - 1)
-        value >>= 8  # Shift the value to the right by 8 bits
-    return channels
 
 
 def make_recording_struct(

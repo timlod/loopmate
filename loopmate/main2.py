@@ -20,6 +20,7 @@ from loopmate.actions import (
 )
 from loopmate.loop import Audio, ExtraOutput, Loop
 
+mido.ports.set_sleep_time(0)
 delay = pedalboard.Delay(0.8, 0.4, 0.3)
 
 

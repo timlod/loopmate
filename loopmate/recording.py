@@ -386,24 +386,76 @@ class RecA(RecAnalysis):
         # the delay from onset detection
         det_delay_s = config.onset_det_offset * config.hop_length / config.sr
         wait_for_ms = 250
+        lookaround_samples = int(wait_for_ms / 1000 * config.sr)
         # Wait for wait_for_ms as well as the onset detection delay
         sd.sleep(wait_for_ms + int(det_delay_s * 1000))
         # We want to check recording_start, so the reference is the frames
         # since then
         ref = self.audio.elements_since(self.data.recording_start)
         # We want to get this many samples before the reference as well
-        lookaround_samples = int(wait_for_ms / 1000 * config.sr)
+
         start = ref + lookaround_samples
         start_frames = -samples_to_frames(start, config.hop_length)
         # In practice, the algorithm finds the onset somewhat later, so
         # we decrement by one to be closer to the actual onset
-        onsets = self.detect_onsets(start_frames) - 1
+        onsets, oe = self.detect_onsets(start_frames)
+        # Currently, it's very possible that the actual press gets an onset
+        # detection, even if quit, which will obviously be the closest one to
+        # quantize to. Therefore, let's weight by distance from press and size
+        # of the peak. subtract one frame after checking height
         onsets = frames_to_samples(
             onsets - samples_to_frames(lookaround_samples, config.hop_length),
             config.hop_length,
         )
-        _, move = self.quantize_onsets(0, onsets)
+        print(f"RECA: onsets (start): {onsets}")
+        _, move = self.quantize_onsets(onsets, lookaround_samples, oe)
+        start = (
+            self.audio.elements_since(self.data.recording_start)
+            + lookaround_samples
+        )
+        audio = self.audio[
+            -start : -frames_to_samples(
+                config.onset_det_offset, config.hop_length
+            )
+        ]
+        # We added the offset to start frames, so we remove it here
+        lookaround_frames = samples_to_frames(
+            lookaround_samples, config.hop_length
+        )
+        start_frames = -samples_to_frames(start, config.hop_length)
+        oe = self.onset_env[start_frames : -config.onset_det_offset]
+        fig, axs = plt.subplots(2, 1, figsize=(22, 4))
+        x = np.arange(len(audio))
+        axs[0].plot(x[:lookaround_samples], audio[:lookaround_samples])
+        axs[0].plot(x[lookaround_samples:], audio[lookaround_samples:])
+        axs[0].vlines(
+            onsets + lookaround_samples,
+            -0.25,
+            0.25,
+            "red",
+        )
+        x = np.arange(len(oe))
+        axs[1].plot(x[:lookaround_frames], oe[:lookaround_frames])
+        axs[1].plot(x[lookaround_frames:], oe[lookaround_frames:])
+        axs[1].vlines(
+            samples_to_frames(onsets + lookaround_samples, config.hop_length),
+            0,
+            0.5,
+            "red",
+        )
+        plt.savefig("oe.png")
+
+        print(
+            f"RECA: Moving from {self.data.recording_start=}, {move} to {self.data.recording_start + move}!"
+        )
+        # back = self.audio.frames_since(self.data.recording_start)
+        # plt.figure()
+        # plt.plot(self.audio[-back - lookaround_samples :])
+        # plt.vlines(onsets + lookaround_samples, -0.5, 0.5, "red")
+        # plt.vlines([move], -0.5, 0.5, "green")
+        # plt.savefig("start.png")
         self.data.recording_start += move
+        # self.data.analysis_action = 0
 
     def quantize_onsets(
         self, frame, onsets, lenience=round(config.sr * 0.1)
@@ -517,7 +569,7 @@ class RecA(RecAnalysis):
                 # Save last reported onset
                 last_onset = i
 
-        return np.array(peaks)
+        return np.array(peaks), onset_env
 
     def quantize_end(self):
         ref_start = self.audio.elements_since(self.data.recording_start)
@@ -528,22 +580,28 @@ class RecA(RecAnalysis):
         end_frame = start_frame + n_frames
         if end_frame > 0:
             end_frame = 0
+        # print(f"{ref_start=}, {start_frame=}, {ref_end=}, {end_frame=}, {n=}")
         tg = self.tg[start_frame:end_frame]
-        bpm = self.tempo(tg)[0]
-        onsets = self.detect_onsets(start_frame)
+        # not needed here
+        onset_env = self.onset_env[start_frame : -config.onset_det_offset]
+        audio = self.audio[-ref_start : min(0, -ref_start + n)]
+        onsets, oe = self.detect_onsets(start_frame)
+        bpm = self.tempo(tg, onsets, onset_env, audio)[0]
         beat_len = int(config.sr / (bpm / 60))
-        offset = find_offset(onsets, bpm, config.sr, method="Powell")
+        offset = find_offset(
+            onsets * config.hop_length, bpm, config.sr, method="Powell"
+        )
         if abs(offset) > 512:
-            print(f"Predicted {offset / config.sr} miss!")
+            print(f"RECA: Predicted {offset / config.sr} miss!")
             # If within 100ms of a subdivision we assume offbeat start:
             # TODO: missing one case here based on direction of difference
             if beat_len / 2 - abs(offset) < 0.1 * config.sr:
-                print(f"Offset changed from {offset} to {beat_len / 2}")
+                print(f"RECA: Offset changed from {offset} to {beat_len / 2}")
                 offset = offset - np.sign(offset) * beat_len / 2
 
         # Option: Just extrapolate BPM from start in any case
         n_beats = round(n / beat_len)
-        print(f"{bpm=}, {n_beats=}, {ref_start=}, {beat_len=}")
+        print(f"RECA: {bpm=}, {n_beats=}, {start_frame=}, {beat_len=}")
         end = self.data.recording_start + n_beats * beat_len
         self.data.recording_end = end
         while end > self.audio.counter:
@@ -555,8 +613,20 @@ class RecA(RecAnalysis):
         # according to end quantization
         self.data
 
-    def tempo(self, tg, agg=np.mean):
+    def tempo(self, tg, onsets, onset_env, audio, agg=np.mean):
         # From librosa.feature.rhythm
+        print(f"end {onsets=}")
+        # fig, axs = plt.subplots(4, figsize=(20, 25))
+        # axs[0].imshow(tg)
+        # axs[1].plot(onset_env)
+        # axs[1].vlines(onsets, 0, 0.8, "red")
+        best_period = np.argmax(
+            np.log1p(1e6 * tg) + self.bpm_logprior, axis=-2
+        )
+
+        # axs[2].plot(np.take(self.tf, best_period))
+        # axs[3].plot(audio)
+        # plt.savefig("test.png")
         if agg is not None:
             tg = agg(tg, axis=-1, keepdims=True)
         best_period = np.argmax(

@@ -414,27 +414,6 @@ class RecA(RecAnalysis):
         )
         self.data.recording_start += move
 
-    def quantize_onsets(
-        self, frame, onsets, lenience=round(config.sr * 0.1)
-    ) -> (int, int):
-        """Quantize recording marker to onsets if within some interval from
-        them.  Also returns difference between original frame and quantized
-        frame.
-
-        :param frame: start or end recording marker
-        :param onsets: array of detected onsets
-        :param lenience: quantize if within this many samples from detected
-            onsets
-        """
-        if len(onsets) == 0:
-            return frame, 0
-        abs_onsets = np.abs(onsets)
-        if abs_onsets[(i := abs_onsets.argmin())] < lenience:
-            move = onsets[i]
-        else:
-            move = 0
-        return frame + move, move
-
     def quantize_onsets_weighted(
         self,
         onsets,
@@ -452,6 +431,8 @@ class RecA(RecAnalysis):
         the MIDI pad (which should always be close to 0) is not chosen over a
         strong onset, for example by the bass drum on the 1, a little farther
         away.
+
+        To use only distances, pass strength_weight = 0.
 
         :param onsets: array of detected onsets, with 0 indicating the event
             happening at the offset

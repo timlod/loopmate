@@ -328,7 +328,7 @@ class AnalysisOnDemand(RecAnalysis):
                 # Save last reported onset
                 last_onset = i
 
-        return np.array(peaks)
+        return np.array(peaks), onset_env
 
     def quantize_onsets(
         self,
@@ -413,7 +413,7 @@ class AnalysisOnDemand(RecAnalysis):
         start_frames = -samples_to_frames(start, config.hop_length)
         # In practice, the algorithm finds the onset somewhat later, so
         # we decrement by one to be closer to the actual onset
-        onsets = self.detect_onsets(start_frames)
+        onsets, onset_envelope = self.detect_onsets(start_frames)
         # Currently, it's very possible that the actual press gets an onset
         # detection, even if quit, which will obviously be the closest one to
         # quantize to. Therefore, let's weight by distance from press and size
@@ -423,24 +423,33 @@ class AnalysisOnDemand(RecAnalysis):
             config.hop_length,
         )
         print(f"RECA: onsets (start): {onsets}")
-        _, move = self.quantize_onsets(onsets, lookaround_samples, oe)
+        _, move = self.quantize_onsets(
+            onsets, lookaround_samples, onset_envelope
+        )
         print(
             f"RECA: Moving from {self.data.recording_start=}, {move} to {self.data.recording_start + move}!"
         )
         self.data.recording_start += move
 
     def quantize_end(self):
+        """Quantize the end marker of recorded audio.  Uses detected onsets to
+        compute BPM and does one of the following:
+
+            - quantize to closest strong onset next to the end marker
+
+            - in absence of onset, quantize to closest beat marker extrapolated
+              from start and the estimated BPM
+        """
         ref_start = self.audio.elements_since(self.data.recording_start)
         start_frame = -samples_to_frames(ref_start, config.hop_length)
-        ref_end = self.audio.elements_since(self.data.recording_end)
         n = self.data.recording_end - self.data.recording_start
         n_frames = samples_to_frames(n, config.hop_length)
         end_frame = start_frame + n_frames
         if end_frame > 0:
             end_frame = 0
-        # print(f"{ref_start=}, {start_frame=}, {ref_end=}, {end_frame=}, {n=}")
+
         tg = self.tg[start_frame:end_frame]
-        onsets = self.detect_onsets(start_frame)
+        onsets, onset_envelope = self.detect_onsets(start_frame)
         bpm = self.tempo(tg)[0]
         beat_len = int(config.sr / (bpm / 60))
         offset = find_offset(

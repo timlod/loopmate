@@ -279,11 +279,7 @@ class Loop:
             self.rec_audio,
             self.callback_time,
             self.stream.time,
-            self.anchor.loop_length if self.anchor is not None else None,
-            # Choosing lenience like this makes sure that if we're before
-            # halfway through the next loop, we still use the previous one -
-            # otherwise, we record the currently ongoing loop
-            lenience=self.anchor.loop_length // 2,
+            self.anchor.loop_length,
         )
         recording.rec_start -= recording.loop_length * n
         audio = recording.finish(t, self.callback_time)
@@ -389,10 +385,14 @@ class Recording:
         rec: CircularArray,
         callback_time: StreamTime,
         start_time: float,
-        loop_length: int | None = None,
+        loop_length: int,
         lenience: int = round(config.sr * 0.2),
     ):
-        self.lenience = lenience
+        # Choosing lenience like this makes sure that if we're before
+        # halfway through the next loop, we still use the previous one -
+        # otherwise, we record the currently ongoing loop
+
+        self.lenience = loop_length // 2
         self.rec_audio = rec
         # Between pressing and the time the last callback happened are this
         # many frames
@@ -400,36 +400,29 @@ class Recording:
             callback_time, start_time
         )
 
-        # Our reference will be the the frame indata_at which a press was
+        # Our reference will be the the frame indata_at which this event was
         # registered, which is the frame indata_at callback time plus the
         # frames elapsed since and the (negative) output delay, which
         # represents difference in time between buffering a sample and the
         # sample being passed into the DAC
-        if loop_length is None:
-            reference_frame = 0
-        else:
-            reference_frame = (
-                callback_time.frame
-                + frames_since
-                + round(callback_time.output_delay * config.sr)
-            )
+        reference_frame = (
+            callback_time.frame
+            + frames_since
+            + round(callback_time.output_delay * config.sr)
+        )
 
         # Quantize to loop_length if it exists
-        if loop_length is not None:
-            self.loop_length = loop_length
-            # Wrap around if we shifted beyond loop_length
-            if reference_frame > loop_length:
-                reference_frame -= loop_length
-            self.start_frame, move = quantize(
-                reference_frame, loop_length, lenience=lenience
-            )
-            print(
-                f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
-            )
-            self.rec_start += move
-        else:
-            self.start_frame = 0
-            self.loop_length = None
+        self.loop_length = loop_length
+        # Wrap around if we shifted beyond loop_length
+        if reference_frame > loop_length:
+            reference_frame -= loop_length
+        self.start_frame, move = quantize(
+            reference_frame, loop_length, lenience=lenience
+        )
+        print(
+            f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
+        )
+        self.rec_start += move
 
     def recording_event(
         self, callback_time: StreamTime, t: float
@@ -453,37 +446,24 @@ class Recording:
         self.rec_stop, _ = self.recording_event(callback_time, t)
 
         n = self.rec_stop - self.rec_start
-        if self.loop_length is not None:
-            reference_frame = self.start_frame + n
-            self.end_frame, move = quantize(
-                reference_frame, self.loop_length, False, self.lenience
-            )
-            print(f"\n\rMove {move} to {self.end_frame}")
-            self.rec_stop += move
-            n += move
-        else:
-            self.end_frame = self.loop_length = n
+        reference_frame = self.start_frame + n
+        self.end_frame, move = quantize(
+            reference_frame, self.loop_length, False, self.lenience
+        )
+        print(f"\n\rMove {move} to {self.end_frame}")
+        self.rec_stop += move
+        n += move
 
         if n == 0:
             return None
-        if self.rec_stop > self.rec_audio.counter:
-            # Amount to wait may depend on latency (number of pre-queued blocks)
-            wait_for = (
-                self.rec_stop - self.rec_audio.counter + 3 * config.blocksize
-            ) / config.sr
-            print(f"Missing {self.rec_stop - self.rec_audio.counter} frames.")
-            print(f"Waiting {wait_for}s.")
-            # Need to specify sleep time in ms, add blocksize to make sure we
-            # don't get a block too few
-            sd.sleep(int(wait_for * 1000))
-            print(f"c: {self.rec_audio.counter}, s: {self.rec_stop}")
-            assert self.rec_audio.counter >= self.rec_stop
+        while self.rec_stop > self.rec_audio.counter:
+            print(
+                f"Missing {self.rec_stop - self.rec_audio.counter} frames. Wait."
+            )
+            sd.sleep(0)
 
         back = self.rec_audio.elements_since(self.rec_stop)
         rec_i = -(n + back)
-        print(
-            f"{rec_i=}, {back=}, {n=}, {self.rec_stop=}, {self.rec_audio.counter=}"
-        )
         recording = self.rec_audio[rec_i:-back]
         self.antipop(
             recording, self.rec_audio[rec_i - config.blend_frames : rec_i]

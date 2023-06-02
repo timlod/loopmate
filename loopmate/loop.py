@@ -106,9 +106,9 @@ class Loop:
         if anchor is not None:
             self.audios.append(anchor)
 
-        self.recording = recording
+        self.rec = recording
         # Always record audio buffers so we can easily look back for loopables
-        self.rec_audio = self.recording.audio
+        self.rec_audio = self.rec.audio
 
         # Global actions applied to fully mixed audio
         self.actions = Actions()
@@ -213,35 +213,32 @@ class Loop:
         )
 
     def start_record(self, channels=[0, 1], new=True):
-        self.recording.data.recording_start = self.event_counter()
+        self.rec.data.recording_start = self.event_counter()
         # : does this make sense? do we perhaps only need this separate on
         # end?
-        self.recording.data.analysis_action = 1 if new else 2
-        self.recording.data.channels = channels_to_int(channels)
+        self.rec.data.analysis_action = 1 if new else 2
+        self.rec.data.channels = channels_to_int(channels)
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
     def stop_record(self):
-        self.recording.data.recording_end = self.event_counter()
-        print(f"{self.recording.data.recording_end=}")
-        if self.recording.data.analysis_action != 0:
+        self.rec.data.recording_end = self.event_counter()
+        print(f"{self.rec.data.recording_end=}")
+        if self.rec.data.analysis_action != 0:
             # This will happen if record toggled twice in quick succession, of
             # if there is a problem with computing the start quantization in
             # time. Do investigate if this happens even if given time!
             print("Got stop command with start still in progress. Aborting!")
-            self.recording.data.analysis_action = 0
+            self.rec.data.analysis_action = 0
             return
 
-        self.recording.data.analysis_action = 3
-        while self.recording.data.result_type < 8:
+        self.rec.data.analysis_action = 3
+        while self.rec.data.result_type < 8:
             # Waiting for end quantization to finish
             sd.sleep(0)
         # We now know when to end the recording (but that may be in the future)
-        N = (
-            self.recording.data.recording_end
-            - self.recording.data.recording_start
-        )
+        N = self.rec.data.recording_end - self.rec.data.recording_start
         start_back = -self.rec_audio.elements_since(
-            self.recording.data.recording_start
+            self.rec.data.recording_start
         )
         rec = self.rec_audio[start_back:][:N]
         n = loop_length = N
@@ -257,10 +254,10 @@ class Loop:
         # before the quantized end event, or simply because of input lag) - we
         # add the track so we can immediately start playback of the loop, but
         # finalize it here asap
-        while self.recording.data.result_type != 9:
+        while self.rec.data.result_type != 9:
             sd.sleep(0)
         start_back = -self.rec_audio.elements_since(
-            self.recording.data.recording_start
+            self.rec.data.recording_start
         )
         rec = self.rec_audio[start_back:][:N]
         rec[-config.blend_frames :] = (
@@ -269,7 +266,7 @@ class Loop:
             * self.rec_audio[start_back - config.blend_frames : start_back]
         )
         audio.audio = rec
-        self.recording.data.result_type = 0
+        self.rec.data.result_type = 0
         print(audio)
 
     def backcapture(self, n):

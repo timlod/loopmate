@@ -113,7 +113,7 @@ class MidiQueue:
                     self.loop.audios[-1].audio, config.sr, reset=False
                 )
             case 41:
-                self.loop.recording.data.quit = True
+                self.loop.rec.data.quit = True
                 self.loop.actions.plans.put_nowait(True)
                 del self.loop.rec_audio
                 self.loop.stop()

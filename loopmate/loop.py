@@ -269,6 +269,95 @@ class Loop:
         self.rec.data.result_type = 0
         print(audio)
 
+    def startrec(self, lenience=config.sr * 0.2, channels=[0, 1]):
+        self.rec.data.recording_start, samples_since = self.event_counter()
+
+        if self.anchor is not None:
+            reference_frame = (
+                self.callback_time.frame
+                + samples_since
+                + round(self.callback_time.output_delay * config.sr)
+            )
+            if reference_frame > self.anchor.loop_length:
+                reference_frame -= self.anchor.loop_length
+                self.start_frame, move = quantize(
+                    reference_frame, self.anchor.loop_length, lenience
+                )
+                self.rec.data.recording_start += move
+            else:
+                # TODO: collapse with the above
+                self.start_frame = reference_frame
+        else:
+            # Initiate quantize_start in AnalysisOnDemand
+            self.rec.data.analysis_action = 1
+        self.rec.data.channels = channels_to_int(channels)
+        print(f"Load: {100 * self.stream.cpu_load:.2f}%")
+
+    def stoprec(self, lenience=config.sr * 0.2):
+        self.rec.data.recording_end, _ = self.event_counter()
+        N = self.rec.data.recording_end - self.rec.data.recording_start
+
+        if self.anchor is not None:
+            loop_length = self.anchor.loop_length
+            reference_frame = self.start_frame + N
+            end_frame, move = quantize(
+                reference_frame, loop_length, False, lenience
+            )
+            self.rec.data.recording_end += move
+            N += move
+        else:
+            self.rec.data.analysis_action = 3
+            while self.rec.data.result_type < 8:
+                # Waiting for end quantization to finish
+                sd.sleep(0)
+            N = self.rec.data.recording_end - self.rec.data.recording_start
+            self.start_frame = 0
+            end_frame = loop_length = N
+
+        print("done")
+        start_back = -self.rec_audio.elements_since(
+            self.rec.data.recording_start
+        )
+        rec = self.rec_audio[start_back:][:N]
+        n = N
+        n_loop_iter = int(2 * np.ceil(np.log2(n / loop_length)))
+
+        n += self.start_frame - round(
+            self.callback_time.output_delay * config.sr
+        )
+        if n > n_loop_iter * loop_length:
+            n = n % loop_length
+        audio = Audio(rec, loop_length, self.start_frame, current_frame=n)
+        self.add_track(audio)
+
+        while self.rec.data.recording_end > self.rec_audio.counter:
+            print("wait")
+            sd.sleep(int(config.blocksize / config.sr * 1000))
+
+        start_back = -self.rec_audio.elements_since(
+            self.rec.data.recording_start
+        )
+        rec = self.rec_audio[start_back:][:N]
+        self.antipop(
+            rec,
+            self.rec_audio[start_back - config.blend_frames : start_back],
+            end_frame,
+        )
+        audio.audio[self.start_frame : self.start_frame + N] = rec
+        self.rec.data.result_type = 0
+
+    def antipop(self, recording, xfade_end, end_frame):
+        # If we have a full loop, blend from pre-recording, else 0 blend
+        if (end_frame % self.anchor.loop_length) == 0:
+            recording[-config.blend_frames :] = (
+                RAMP * recording[-config.blend_frames :]
+                + (1 - RAMP) * xfade_end
+            )
+        else:
+            n_pw = len(POP_WINDOW) // 2
+            recording[:n_pw] *= POP_WINDOW[:n_pw]
+            recording[-n_pw:] *= POP_WINDOW[-n_pw:]
+
     def backcapture(self, n):
         print(f"Backcapture {n=}!")
         t = self.stream.time

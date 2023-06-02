@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from multiprocessing import Process
+from warnings import warn
 
 import numpy as np
 import pedalboard
@@ -23,7 +24,7 @@ from loopmate.loop import Audio, Loop
 delay = pedalboard.Delay(0.8, 0.4, 0.3)
 
 
-def decode_midi_status(self, status):
+def decode_midi_status(status):
     return status // 16, status % 16 + 1
 
 
@@ -36,11 +37,18 @@ class MidiQueue:
 
     def receive(self, event, data=None):
         gain = 1.0
-        [status, note, velocity], deltatime = event
-        command, channel = decode_midi_status(status)
+        try:
+            [status, note, velocity], deltatime = event
+            command, channel = decode_midi_status(status)
+        except Exception as e:
+            warn(f"{event} was not decodable!\n{e.message}")
 
         if command != 9:
             return
+
+        if config.midi_channel > 0:
+            if channel != config.midi_channel:
+                return
 
         match note:
             case 25:

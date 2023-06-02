@@ -468,9 +468,7 @@ class AnalysisOnDemand(RecAnalysis):
         print(f"RECA: {bpm=}, {n_beats=}, {start_frame=}, {beat_len=}")
         end = self.data.recording_start + n_beats * beat_len
         self.data.recording_end = end
-        while end > self.audio.counter:
-            self.data.result_type = 8
-        self.data.result_type = 9
+        self.data.result_type = 8
 
     def tempo(self, tg, agg=np.mean):
         # From librosa.feature.rhythm

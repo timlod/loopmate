@@ -11,7 +11,7 @@ from scipy import signal as sig
 from loopmate import config
 from loopmate.actions import Actions, Sample, Start, Stop
 from loopmate.circular_array import CircularArray
-from loopmate.utils import CLAVE, StreamTime
+from loopmate.utils import CLAVE, StreamTime, channels_to_int
 
 RAMP = np.linspace(1, 0, config.blend_frames, dtype=np.float32)[:, None]
 POP_WINDOW = sig.windows.hann(config.blend_frames)[:, None]
@@ -212,9 +212,12 @@ class Loop:
             + round(self.callback_time.input_delay * config.sr)
         )
 
-    def start_record(self):
+    def start_record(self, channels=[0, 1], new=True):
         self.recording.data.recording_start = self.event_counter()
-        self.recording.data.analysis_action = 1
+        # : does this make sense? do we perhaps only need this separate on
+        # end?
+        self.recording.data.analysis_action = 1 if new else 2
+        self.recording.data.channels = channels_to_int(channels)
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
     def stop_record(self):

@@ -300,7 +300,7 @@ class AnalysisOnDemand(RecAnalysis):
             case 1:
                 print("RECA: Quantize start")
                 self.quantize_start()
-            case 2:
+            case 3:
                 print("RECA: Quantize end")
                 self.quantize_end()
 

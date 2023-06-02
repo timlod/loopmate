@@ -205,12 +205,12 @@ class Loop:
 
     def event_counter(self):
         t = self.stream.time
-        frames_since = round(self.callback_time.timediff(t) * config.sr)
+        samples_since = round(self.callback_time.timediff(t) * config.sr)
         return (
             self.rec_audio.counter
-            + frames_since
+            + samples_since
             + round(self.callback_time.input_delay * config.sr)
-        )
+        ), samples_since
 
     def start_record(self, channels=[0, 1], new=True):
         self.rec.data.recording_start = self.event_counter()

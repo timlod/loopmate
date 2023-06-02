@@ -231,17 +231,19 @@ class Loop:
             self.recording.data.analysis_action = 0
             return
 
-        self.recording.data.analysis_action = 2
+        self.recording.data.analysis_action = 3
         while self.recording.data.result_type < 8:
+            # Waiting for end quantization to finish
             sd.sleep(0)
+        # We now know when to end the recording (but that may be in the future)
         N = (
             self.recording.data.recording_end
             - self.recording.data.recording_start
         )
-        start_back = -self.recording.audio.elements_since(
+        start_back = -self.rec_audio.elements_since(
             self.recording.data.recording_start
         )
-        rec = self.recording.audio[start_back:][:N]
+        rec = self.rec_audio[start_back:][:N]
         n = loop_length = N
         n_loop_iter = int(2 * np.ceil(np.log2(n / loop_length)))
         start_frame = 0
@@ -257,16 +259,14 @@ class Loop:
         # finalize it here asap
         while self.recording.data.result_type != 9:
             sd.sleep(0)
-        start_back = -self.recording.audio.elements_since(
+        start_back = -self.rec_audio.elements_since(
             self.recording.data.recording_start
         )
-        rec = self.recording.audio[start_back:][:N]
+        rec = self.rec_audio[start_back:][:N]
         rec[-config.blend_frames :] = (
             RAMP * rec[-config.blend_frames :]
             + (1 - RAMP)
-            * self.recording.audio[
-                start_back - config.blend_frames : start_back
-            ]
+            * self.rec_audio[start_back - config.blend_frames : start_back]
         )
         audio.audio = rec
         self.recording.data.result_type = 0

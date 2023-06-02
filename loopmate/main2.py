@@ -42,71 +42,73 @@ class MidiQueue:
         if command != 9:
             return
 
-        if note == 25:
-            self.loop.start()
-        elif note == 35:
-            if len(self.loop.actions.actions) > 0 and isinstance(
-                self.loop.actions.actions[0], Mute
-            ):
-                self.loop.actions.actions[0].cancel()
-            else:
-                self.loop.actions.actions.appendleft(
-                    Mute(self.loop.anchor.current_frame, self.loop.anchor.n)
+        match note:
+            case 25:
+                self.loop.start()
+            case 35:
+                if len(self.loop.actions.actions) > 0 and isinstance(
+                    self.loop.actions.actions[0], Mute
+                ):
+                    self.loop.actions.actions[0].cancel()
+                else:
+                    self.loop.actions.actions.appendleft(
+                        Mute(
+                            self.loop.anchor.current_frame, self.loop.anchor.n
+                        )
+                    )
+            case 27:
+                self.loop.audios.pop()
+                if len(self.loop.audios) == 0:
+                    self.loop.anchor = None
+            case 47:
+                if self.loop.anchor is None:
+                    bpm_quant = True
+                else:
+                    bpm_quant = False
+                self.in_rec = not self.in_rec
+                if self.in_rec:
+                    self.loop.start_record()
+                else:
+                    self.loop.stop_record()
+            case 57:
+                n = self.loop.anchor.loop_length
+                when = (
+                    n - round(self.loop.callback_time.output_delay * config.sr)
+                ) % self.loop.anchor.loop_length
+                self.loop.actions.actions.append(
+                    RecordTrigger(when, n, spawn=RecordTrigger(when, n))
                 )
-        elif note == 27:
-            self.loop.audios.pop()
-            if len(self.loop.audios) == 0:
-                self.loop.anchor = None
-        elif note == 47:
-            # Make different methods for new loop or new recording and
-            # include channels and rec number
-            if self.loop.anchor is None:
-                bpm_quant = True
-            else:
-                bpm_quant = False
-            self.in_rec = not self.in_rec
-            # Record should probably take start/end frames optionally as
-            # input which could come from bpm quantization
-            if self.in_rec:
-                self.loop.start_record()
-            else:
-                self.loop.stop_record()
-        elif note == 57:
-            n = self.loop.anchor.loop_length
-            when = (
-                n - round(self.loop.callback_time.output_delay * config.sr)
-            ) % self.loop.anchor.loop_length
-            self.loop.actions.actions.append(
-                RecordTrigger(when, n, spawn=RecordTrigger(when, n))
-            )
-            self.loop.actions.actions.append(
-                MuteTrigger(when, n, spawn=MuteTrigger(when, n))
-            )
-            print(self.loop.actions.actions)
-        elif note == 30:
-            n = self.loop.anchor.loop_length
-            when = n - config.blend_frames - 256
-            self.loop.actions.actions.append(MuteTrigger(when, n, loop=False))
-        elif note == 48:
-            self.loop.backcapture(1)
-        elif note == 43:
-            self.loop.measure_air_delay()
-        elif note == 50:
-            self.loop.audios[-1].audio *= 1.2
-        elif note == 52:
-            self.loop.audios[-1].audio *= 0.8
-        elif note == 55:
-            self.loop.audios[-1].reset_audio()
-        elif note == 53:
-            self.loop.audios[-1].audio = delay(
-                self.loop.audios[-1].audio, config.sr, reset=False
-            )
-        elif note == 41:
-            self.loop.recording.data.quit = True
-            self.loop.actions.plans.put_nowait(True)
-            # Need to clean up all shared memory :/
-            del self.loop.rec_audio
-            self.loop.stop()
+                self.loop.actions.actions.append(
+                    MuteTrigger(when, n, spawn=MuteTrigger(when, n))
+                )
+                print(self.loop.actions.actions)
+            case 30:
+                n = self.loop.anchor.loop_length
+                when = n - config.blend_frames - 256
+                self.loop.actions.actions.append(
+                    MuteTrigger(when, n, loop=False)
+                )
+            case 48:
+                self.loop.backcapture(1)
+            case 43:
+                self.loop.measure_air_delay()
+            case 50:
+                self.loop.audios[-1].audio *= 1.2
+            case 52:
+                self.loop.audios[-1].audio *= 0.8
+            case 55:
+                self.loop.audios[-1].reset_audio()
+            case 53:
+                self.loop.audios[-1].audio = delay(
+                    self.loop.audios[-1].audio, config.sr, reset=False
+                )
+            case 41:
+                self.loop.recording.data.quit = True
+                self.loop.actions.plans.put_nowait(True)
+                del self.loop.rec_audio
+                self.loop.stop()
+            case _:
+                pass  # Do nothing for other values.
 
         def start_new_recording(self, channels):
             self.loop.start_record(channels, new=self.loop.anchor is None)

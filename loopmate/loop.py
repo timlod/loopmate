@@ -294,8 +294,9 @@ class Loop:
         else:
             # Initiate quantize_start in AnalysisOnDemand
             self.rec.data.analysis_action = 1
+            self.rec.data.channels = channels_to_int(channels)
             self.start_sample = 0
-        self.rec.data.channels = channels_to_int(channels)
+
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
     def stoprec(self, lenience=config.sr * 0.2):
@@ -304,9 +305,9 @@ class Loop:
 
         if self.anchor is not None:
             loop_length = self.anchor.loop_length
-            reference_sample = self.start_sample + N
+            end_sample = self.start_sample + N
             end_sample, move = quantize(
-                reference_sample, loop_length, False, lenience
+                end_sample, loop_length, False, lenience
             )
             self.rec.data.recording_end += move
             N += move

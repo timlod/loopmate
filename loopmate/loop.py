@@ -272,26 +272,29 @@ class Loop:
         print(audio)
 
     def startrec(self, lenience=config.sr * 0.2, channels=[0, 1]):
+        # recording_start is the counter in rec_audio coinciding with the
+        # event, start_sample is the sample number within the loop the event
+        # coincides with. For a new loop this will be 0.
         self.rec.data.recording_start, samples_since = self.event_counter()
 
         if self.anchor is not None:
-            reference_sample = (
+            start_sample = (
                 self.callback_time.frame
                 + samples_since
                 + round(self.callback_time.output_delay * config.sr)
             )
-            if reference_sample > self.anchor.loop_length:
-                reference_sample -= self.anchor.loop_length
+            if start_sample > self.anchor.loop_length:
+                start_sample -= self.anchor.loop_length
                 self.start_sample, move = quantize(
-                    reference_sample, self.anchor.loop_length, lenience
+                    start_sample, self.anchor.loop_length, lenience
                 )
                 self.rec.data.recording_start += move
             else:
-                # TODO: collapse with the above
-                self.start_sample = reference_sample
+                self.start_sample = start_sample
         else:
             # Initiate quantize_start in AnalysisOnDemand
             self.rec.data.analysis_action = 1
+            self.start_sample = 0
         self.rec.data.channels = channels_to_int(channels)
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
@@ -313,7 +316,6 @@ class Loop:
                 # Waiting for end quantization to finish
                 sd.sleep(0)
             N = self.rec.data.recording_end - self.rec.data.recording_start
-            self.start_sample = 0
             end_sample = loop_length = N
 
         print("done")

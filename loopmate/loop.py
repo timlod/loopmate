@@ -350,17 +350,16 @@ class Loop:
         audio.audio[self.start_sample : self.start_sample + N] = rec
         self.rec.data.result_type = 0
 
-    def antipop(self, recording, xfade_end, end_sample):
+    def antipop(self, audio, xfade_end, end_sample):
         # If we have a full loop, blend from pre-recording, else 0 blend
         if (end_sample % self.anchor.loop_length) == 0:
-            recording[-config.blend_frames :] = (
-                RAMP * recording[-config.blend_frames :]
-                + (1 - RAMP) * xfade_end
+            audio[-config.blend_frames :] = (
+                RAMP * audio[-config.blend_frames :] + (1 - RAMP) * xfade_end
             )
         else:
             n_pw = len(POP_WINDOW) // 2
-            recording[:n_pw] *= POP_WINDOW[:n_pw]
-            recording[-n_pw:] *= POP_WINDOW[-n_pw:]
+            audio[:n_pw] *= POP_WINDOW[:n_pw]
+            audio[-n_pw:] *= POP_WINDOW[-n_pw:]
 
     def backcapture(self, n):
         print(f"Backcapture {n=}!")

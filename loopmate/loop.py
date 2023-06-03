@@ -319,7 +319,6 @@ class Loop:
             N = self.rec.data.recording_end - self.rec.data.recording_start
             end_sample = loop_length = N
 
-        print("done")
         start_back = -self.rec_audio.elements_since(
             self.rec.data.recording_start
         )
@@ -336,7 +335,7 @@ class Loop:
         self.add_track(audio)
 
         while self.rec.data.recording_end > self.rec_audio.counter:
-            print("wait")
+            # Maybe make 0
             sd.sleep(int(config.blocksize / config.sr * 1000))
 
         start_back = -self.rec_audio.elements_since(

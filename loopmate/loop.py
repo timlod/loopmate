@@ -245,8 +245,8 @@ class Loop:
         rec = self.rec_audio[start_back:][:N]
         n = loop_length = N
         n_loop_iter = int(2 * np.ceil(np.log2(n / loop_length)))
-        start_frame = 0
-        n += start_frame - round(self.callback_time.output_delay * config.sr)
+        start_sample = 0
+        n += start_sample - round(self.callback_time.output_delay * config.sr)
         if n > n_loop_iter * loop_length:
             n = n % loop_length
         audio = Audio(rec, loop_length=loop_length, current_sample=n)
@@ -282,13 +282,13 @@ class Loop:
             )
             if reference_sample > self.anchor.loop_length:
                 reference_sample -= self.anchor.loop_length
-                self.start_frame, move = quantize(
+                self.start_sample, move = quantize(
                     reference_sample, self.anchor.loop_length, lenience
                 )
                 self.rec.data.recording_start += move
             else:
                 # TODO: collapse with the above
-                self.start_frame = reference_sample
+                self.start_sample = reference_sample
         else:
             # Initiate quantize_start in AnalysisOnDemand
             self.rec.data.analysis_action = 1
@@ -301,9 +301,9 @@ class Loop:
 
         if self.anchor is not None:
             loop_length = self.anchor.loop_length
-            reference_frame = self.start_frame + N
-            end_frame, move = quantize(
-                reference_frame, loop_length, False, lenience
+            reference_sample = self.start_sample + N
+            end_sample, move = quantize(
+                reference_sample, loop_length, False, lenience
             )
             self.rec.data.recording_end += move
             N += move
@@ -313,8 +313,8 @@ class Loop:
                 # Waiting for end quantization to finish
                 sd.sleep(0)
             N = self.rec.data.recording_end - self.rec.data.recording_start
-            self.start_frame = 0
-            end_frame = loop_length = N
+            self.start_sample = 0
+            end_sample = loop_length = N
 
         print("done")
         start_back = -self.rec_audio.elements_since(
@@ -324,12 +324,12 @@ class Loop:
         n = N
         n_loop_iter = int(2 * np.ceil(np.log2(n / loop_length)))
 
-        n += self.start_frame - round(
+        n += self.start_sample - round(
             self.callback_time.output_delay * config.sr
         )
         if n > n_loop_iter * loop_length:
             n = n % loop_length
-        audio = Audio(rec, loop_length, self.start_frame, current_sample=n)
+        audio = Audio(rec, loop_length, self.start_sample, current_sample=n)
         self.add_track(audio)
 
         while self.rec.data.recording_end > self.rec_audio.counter:
@@ -343,14 +343,14 @@ class Loop:
         self.antipop(
             rec,
             self.rec_audio[start_back - config.blend_frames : start_back],
-            end_frame,
+            end_sample,
         )
-        audio.audio[self.start_frame : self.start_frame + N] = rec
+        audio.audio[self.start_sample : self.start_sample + N] = rec
         self.rec.data.result_type = 0
 
-    def antipop(self, recording, xfade_end, end_frame):
+    def antipop(self, recording, xfade_end, end_sample):
         # If we have a full loop, blend from pre-recording, else 0 blend
-        if (end_frame % self.anchor.loop_length) == 0:
+        if (end_sample % self.anchor.loop_length) == 0:
             recording[-config.blend_frames :] = (
                 RAMP * recording[-config.blend_frames :]
                 + (1 - RAMP) * xfade_end
@@ -493,7 +493,7 @@ class Recording:
         # frames elapsed since and the (negative) output delay, which
         # represents difference in time between buffering a sample and the
         # sample being passed into the DAC
-        reference_frame = (
+        reference_sample = (
             callback_time.frame
             + frames_since
             + round(callback_time.output_delay * config.sr)
@@ -502,13 +502,13 @@ class Recording:
         # Quantize to loop_length if it exists
         self.loop_length = loop_length
         # Wrap around if we shifted beyond loop_length
-        if reference_frame > loop_length:
-            reference_frame -= loop_length
-        self.start_frame, move = quantize(
-            reference_frame, loop_length, lenience=lenience
+        if reference_sample > loop_length:
+            reference_sample -= loop_length
+        self.start_sample, move = quantize(
+            reference_sample, loop_length, lenience=lenience
         )
         print(
-            f"\n\rMoving {move} from {reference_frame} to {self.start_frame}"
+            f"\n\rMoving {move} from {reference_sample} to {self.start_sample}"
         )
         self.rec_start += move
 
@@ -534,11 +534,11 @@ class Recording:
         self.rec_stop, _ = self.recording_event(callback_time, t)
 
         n = self.rec_stop - self.rec_start
-        reference_frame = self.start_frame + n
-        self.end_frame, move = quantize(
-            reference_frame, self.loop_length, False, self.lenience
+        reference_sample = self.start_sample + n
+        self.end_sample, move = quantize(
+            reference_sample, self.loop_length, False, self.lenience
         )
-        print(f"\n\rMove {move} to {self.end_frame}")
+        print(f"\n\rMove {move} to {self.end_sample}")
         self.rec_stop += move
         n += move
 
@@ -561,7 +561,7 @@ class Recording:
         # as well as subtract the audio delay we added when we started
         # recording
         n_loop_iter = int(2 * np.ceil(np.log2(n / self.loop_length)))
-        n += self.start_frame - round(callback_time.output_delay * config.sr)
+        n += self.start_sample - round(callback_time.output_delay * config.sr)
         if n > n_loop_iter * self.loop_length:
             n = n % self.loop_length
         audio = Audio(recording, self.loop_length, current_sample=n)
@@ -569,7 +569,7 @@ class Recording:
 
     def antipop(self, recording, xfade_end):
         # If we have a full loop, blend from pre-recording, else 0 blend
-        if (self.end_frame % self.loop_length) == 0:
+        if (self.end_sample % self.loop_length) == 0:
             recording[-config.blend_frames :] = (
                 RAMP * recording[-config.blend_frames :]
                 + (1 - RAMP) * xfade_end
@@ -581,13 +581,13 @@ class Recording:
 
 
 def quantize(
-    frame, loop_length, start=True, lenience=config.sr * 0.2
+    sample, loop_length, start=True, lenience=config.sr * 0.2
 ) -> (int, int):
     """Quantize start or end recording marker to the loop boundary if
     within some interval from them.  Also returns difference between
-    original frame and quantized frame.
+    original sample and quantized sample.
 
-    :param frame: start or end recording marker
+    :param sample: start or end recording marker
     :param start: True for start, or False for end
     :param lenience: quantize if within this many seconds from the loop
         boundary
@@ -596,18 +596,18 @@ def quantize(
         samples.  If the end marker is indata_at between 38400 and 57600,
         it will instead be set to 48000, the full loop.
     """
-    loop_n, frame_rem = np.divmod(frame, loop_length)
+    loop_n, frame_rem = np.divmod(sample, loop_length)
     if start:
-        if frame < lenience:
-            return 0, -frame
-        elif frame > (loop_length - lenience):
-            return 0, loop_length - frame
+        if sample < lenience:
+            return 0, -sample
+        elif sample > (loop_length - lenience):
+            return 0, loop_length - sample
         else:
-            return frame, 0
+            return sample, 0
     else:
         if frame_rem < lenience:
             return loop_n * loop_length, -frame_rem
         elif frame_rem > (loop_length - lenience):
             return (loop_n + 1) * loop_length, loop_length - frame_rem
         else:
-            return frame, 0
+            return sample, 0

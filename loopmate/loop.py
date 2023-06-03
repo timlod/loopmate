@@ -26,7 +26,7 @@ class Audio:
     audio: np.ndarray = field(repr=False)
     loop_length: int | None = None
     pos_start: int = 0
-    current_frame: int = 0
+    current_sample: int = 0
     n: int = field(init=False)
     channels: int = field(init=False)
 
@@ -68,23 +68,23 @@ class Audio:
 
         :param frames: number of audio samples to return
         """
-        leftover = self.n - self.current_frame
+        leftover = self.n - self.current_sample
         chunksize = min(leftover, frames)
-        current_frame = self.current_frame
+        current_sample = self.current_sample
 
         if leftover <= frames:
             out = self.audio[
                 np.r_[
-                    current_frame : current_frame + chunksize,
+                    current_sample : current_sample + chunksize,
                     : frames - leftover,
                 ]
             ]
-            self.current_frame = frames - leftover
+            self.current_sample = frames - leftover
         else:
-            out = self.audio[current_frame : current_frame + chunksize]
-            self.current_frame += frames
+            out = self.audio[current_sample : current_sample + chunksize]
+            self.current_sample += frames
 
-        self.actions.run(out, current_frame, self.current_frame)
+        self.actions.run(out, current_sample, self.current_sample)
         return out
 
     def reset_audio(self):
@@ -95,7 +95,7 @@ class Audio:
         self.n_loop_iter = 1
 
     def __repr__(self):
-        return f"{self.n=}, {self.audio.shape=}, {self.loop_length=}, {self.n_loop_iter=}, {self.current_frame=}"
+        return f"{self.n=}, {self.audio.shape=}, {self.loop_length=}, {self.n_loop_iter=}, {self.current_sample=}"
 
 
 class Loop:
@@ -133,7 +133,9 @@ class Loop:
         else:
             if not isinstance(audio, Audio):
                 audio = Audio(audio, self.anchor.loop_length)
-            audio.actions.append(Start(audio.current_frame, audio.loop_length))
+            audio.actions.append(
+                Start(audio.current_sample, audio.loop_length)
+            )
             self.new_audios.put(audio)
             self.audios.append(audio)
 
@@ -148,21 +150,21 @@ class Loop:
 
             # If no audio is present
             if self.anchor is None:
-                current_frame = 0
+                current_sample = 0
             else:
-                current_frame = self.anchor.current_frame
+                current_sample = self.anchor.current_sample
 
             # Align current frame for newly put audio - maybe not necessary now
             for i in range(self.new_audios.qsize()):
                 audio = self.new_audios.get()
-                current_loop_iter = audio.current_frame // audio.loop_length
-                audio.current_frame = (
-                    current_loop_iter * audio.loop_length + current_frame
+                current_loop_iter = audio.current_sample // audio.loop_length
+                audio.current_sample = (
+                    current_loop_iter * audio.loop_length + current_sample
                 )
 
             # These times/frame refer to the frame that is processed in this
             # callback
-            self.callback_time = StreamTime(time, current_frame, frames)
+            self.callback_time = StreamTime(time, current_sample, frames)
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
@@ -180,26 +182,26 @@ class Loop:
             self.last_out.append((self.callback_time, outdata.copy()))
 
             next_frame = (
-                0 if self.anchor is None else self.anchor.current_frame
+                0 if self.anchor is None else self.anchor.current_sample
             )
-            self.actions.run(outdata, current_frame, next_frame)
+            self.actions.run(outdata, current_sample, next_frame)
 
         return callback
 
     def start(self):
         self.stream.stop()
-        # self.current_frame = 0
+        # self.current_sample = 0
         if self.anchor is not None:
             self.actions.actions.append(
-                Start(self.anchor.current_frame, self.anchor.loop_length)
+                Start(self.anchor.current_sample, self.anchor.loop_length)
             )
         self.stream.start()
 
     def stop(self):
         if self.anchor is not None:
-            print(f"Stopping stream action. {self.anchor.current_frame}")
+            print(f"Stopping stream action. {self.anchor.current_sample}")
             # self.actions.actions.append(
-            #     Stop(self.anchor.current_frame, self.anchor.loop_length)
+            #     Stop(self.anchor.current_sample, self.anchor.loop_length)
             # )
             self.stream.stop()
 
@@ -247,7 +249,7 @@ class Loop:
         n += start_frame - round(self.callback_time.output_delay * config.sr)
         if n > n_loop_iter * loop_length:
             n = n % loop_length
-        audio = Audio(rec, loop_length=loop_length, current_frame=n)
+        audio = Audio(rec, loop_length=loop_length, current_sample=n)
         self.add_track(audio)
 
         # We added the track, but it may not yet be completed (if pressed
@@ -273,20 +275,20 @@ class Loop:
         self.rec.data.recording_start, samples_since = self.event_counter()
 
         if self.anchor is not None:
-            reference_frame = (
+            reference_sample = (
                 self.callback_time.frame
                 + samples_since
                 + round(self.callback_time.output_delay * config.sr)
             )
-            if reference_frame > self.anchor.loop_length:
-                reference_frame -= self.anchor.loop_length
+            if reference_sample > self.anchor.loop_length:
+                reference_sample -= self.anchor.loop_length
                 self.start_frame, move = quantize(
-                    reference_frame, self.anchor.loop_length, lenience
+                    reference_sample, self.anchor.loop_length, lenience
                 )
                 self.rec.data.recording_start += move
             else:
                 # TODO: collapse with the above
-                self.start_frame = reference_frame
+                self.start_frame = reference_sample
         else:
             # Initiate quantize_start in AnalysisOnDemand
             self.rec.data.analysis_action = 1
@@ -327,7 +329,7 @@ class Loop:
         )
         if n > n_loop_iter * loop_length:
             n = n % loop_length
-        audio = Audio(rec, loop_length, self.start_frame, current_frame=n)
+        audio = Audio(rec, loop_length, self.start_frame, current_sample=n)
         self.add_track(audio)
 
         while self.rec.data.recording_end > self.rec_audio.counter:
@@ -562,7 +564,7 @@ class Recording:
         n += self.start_frame - round(callback_time.output_delay * config.sr)
         if n > n_loop_iter * self.loop_length:
             n = n % self.loop_length
-        audio = Audio(recording, self.loop_length, current_frame=n)
+        audio = Audio(recording, self.loop_length, current_sample=n)
         return audio
 
     def antipop(self, recording, xfade_end):

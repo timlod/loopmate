@@ -47,8 +47,9 @@ class Audio:
         else:
             # Need to zero-pad right to a power of 2 amount of loop iterations
             self.n_loop_iter = int(
-                2 * np.ceil(np.log2(self.n / self.loop_length))
+                2 ** np.ceil(np.log2(self.n / self.loop_length))
             )
+
             right = self.n_loop_iter * self.loop_length - self.n
 
         self.audio = np.concatenate(
@@ -248,7 +249,7 @@ class Loop:
         )
         rec = self.rec_audio[start_back:][:N]
         n = loop_length = N
-        n_loop_iter = int(2 * np.ceil(np.log2(n / loop_length)))
+        n_loop_iter = int(2 ** np.ceil(np.log2(n / loop_length)))
         start_sample = 0
         n += start_sample - round(self.callback_time.output_delay * config.sr)
         if n > n_loop_iter * loop_length:
@@ -326,7 +327,7 @@ class Loop:
         )
         rec = self.rec_audio[start_back:][:N]
         n = N
-        n_loop_iter = int(2 * np.ceil(np.log2(n / loop_length)))
+        n_loop_iter = int(2 ** np.ceil(np.log2(n / loop_length)))
 
         n += self.start_sample - round(
             self.callback_time.output_delay * config.sr
@@ -563,7 +564,7 @@ class Recording:
         # We need to add the starting frame (in case we start this audio late)
         # as well as subtract the audio delay we added when we started
         # recording
-        n_loop_iter = int(2 * np.ceil(np.log2(n / self.loop_length)))
+        n_loop_iter = int(2 ** np.ceil(np.log2(n / self.loop_length)))
         n += self.start_sample - round(callback_time.output_delay * config.sr)
         if n > n_loop_iter * self.loop_length:
             n = n % self.loop_length

@@ -63,26 +63,26 @@ class Audio:
 
         self.actions = Actions(self)
 
-    def get_n(self, frames: int):
+    def get_n(self, samples: int):
         """Return the next batch of audio in the loop
 
         :param frames: number of audio samples to return
         """
         leftover = self.n - self.current_sample
-        chunksize = min(leftover, frames)
+        chunksize = min(leftover, samples)
         current_sample = self.current_sample
 
-        if leftover <= frames:
+        if leftover <= samples:
             out = self.audio[
                 np.r_[
                     current_sample : current_sample + chunksize,
-                    : frames - leftover,
+                    : samples - leftover,
                 ]
             ]
-            self.current_sample = frames - leftover
+            self.current_sample = samples - leftover
         else:
             out = self.audio[current_sample : current_sample + chunksize]
-            self.current_sample += frames
+            self.current_sample += samples
 
         self.actions.run(out, current_sample, self.current_sample)
         return out

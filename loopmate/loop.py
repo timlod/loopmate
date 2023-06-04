@@ -205,7 +205,11 @@ class Loop:
             # )
             self.stream.stop()
 
-    def event_counter(self):
+    def event_counter(self) -> (int, int):
+        """Return the recording counter location corresponding to the time when
+        this function was called, as well as the offset samples relative to the
+        beginning of the current audio block/frame.
+        """
         t = self.stream.time
         samples_since = round(self.callback_time.timediff(t) * config.sr)
         return (

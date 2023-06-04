@@ -289,12 +289,10 @@ class Loop:
             )
             if start_sample > self.anchor.loop_length:
                 start_sample -= self.anchor.loop_length
-                self.start_sample, move = quantize(
-                    start_sample, self.anchor.loop_length, lenience
-                )
-                self.rec.data.recording_start += move
-            else:
-                self.start_sample = start_sample
+            self.start_sample, move = quantize(
+                start_sample, self.anchor.loop_length, lenience
+            )
+            self.rec.data.recording_start += move
         else:
             # Initiate quantize_start in AnalysisOnDemand
             self.rec.data.analysis_action = 1

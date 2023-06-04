@@ -314,7 +314,11 @@ class Loop:
             )
             self.rec.data.recording_end += move
             N += move
+            if N == 0:
+                warn("Loop so short it quantized to 0.")
+                return
         else:
+            # Initiate quantize_end in AnalysisOnDemand
             self.rec.data.analysis_action = 3
             while self.rec.data.result_type < 8:
                 # Waiting for end quantization to finish

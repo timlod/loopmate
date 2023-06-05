@@ -37,8 +37,7 @@ import sounddevice as sd
 
 from loopmate import config
 
-blend_windowsize = int(config.blend_length * config.sr)
-RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]
+RAMP = np.linspace(1, 0, config.blend_samples, dtype=np.float32)[:, None]
 
 
 @dataclass

@@ -49,7 +49,9 @@ class MidiQueue:
         if config.midi_channel > 0:
             if channel != config.midi_channel:
                 return
+        self.command(note)
 
+    def command(self, note):
         match note:
             case 25:
                 self.loop.start()

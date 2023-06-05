@@ -96,7 +96,7 @@ class MidiQueue:
                 print(self.loop.actions.actions)
             case 30:
                 n = self.loop.anchor.loop_length
-                when = n - config.blend_frames - 256
+                when = n - config.blend_samples - 256
                 self.loop.actions.actions.append(
                     MuteTrigger(when, n, loop=False)
                 )

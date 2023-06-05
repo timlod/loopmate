@@ -23,4 +23,4 @@ air_delay = 0.0
 # this many samples to query backwards from.
 max_recording_length = 60
 
-blend_frames = round(sr * blend_length)
+blend_samples = round(sr * blend_length)

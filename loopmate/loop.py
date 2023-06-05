@@ -14,8 +14,8 @@ from loopmate.actions import Actions, Sample, Start, Stop
 from loopmate.circular_array import CircularArray
 from loopmate.utils import CLAVE, StreamTime, channels_to_int
 
-RAMP = np.linspace(1, 0, config.blend_frames, dtype=np.float32)[:, None]
-POP_WINDOW = sig.windows.hann(config.blend_frames)[:, None]
+RAMP = np.linspace(1, 0, config.blend_samples, dtype=np.float32)[:, None]
+POP_WINDOW = sig.windows.hann(config.blend_samples)[:, None]
 
 # TODO: BPM sync & metronome anchor
 
@@ -69,7 +69,7 @@ class Audio:
     def get_n(self, samples: int):
         """Return the next batch of audio in the loop
 
-        :param frames: number of audio samples to return
+        :param samples: number of audio samples to return
         """
         leftover = self.n - self.current_sample
         chunksize = min(leftover, samples)
@@ -296,7 +296,7 @@ class Loop:
         rec = self.rec_audio[start_back:][:N]
         self.antipop(
             rec,
-            self.rec_audio[start_back - config.blend_frames : start_back],
+            self.rec_audio[start_back - config.blend_samples : start_back],
             end_sample,
         )
         audio.audio[self.start_sample : self.start_sample + N] = rec
@@ -305,8 +305,8 @@ class Loop:
     def antipop(self, audio, xfade_end, end_sample):
         # If we have a full loop, blend from pre-recording, else 0 blend
         if (end_sample % self.anchor.loop_length) == 0:
-            audio[-config.blend_frames :] = (
-                RAMP * audio[-config.blend_frames :] + (1 - RAMP) * xfade_end
+            audio[-config.blend_samples :] = (
+                RAMP * audio[-config.blend_samples :] + (1 - RAMP) * xfade_end
             )
         else:
             n_pw = len(POP_WINDOW) // 2
@@ -335,7 +335,7 @@ class Loop:
         ll = 0 if self.anchor is None else self.anchor.loop_length
         self.actions.append(Sample(CLAVE, ll, 1.5))
         at_sample = self.rec_audio.counter
-        indelay_frames = round(self.callback_time.input_delay * config.sr)
+        indelay_samples = round(self.callback_time.input_delay * config.sr)
         wait_for = (
             200
             - round(self.callback_time.output_delay * 1000)
@@ -343,8 +343,8 @@ class Loop:
         )
         sd.sleep(wait_for)
         after = self.rec_audio.counter
-        frames_waited = after - at_sample
-        rec_audio = self.rec_audio[-frames_waited + indelay_frames :]
+        samples_waited = after - at_sample
+        rec_audio = self.rec_audio[-samples_waited + indelay_samples :]
         delay = rec_audio.sum(-1).argmax()
         return delay
 

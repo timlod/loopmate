@@ -112,8 +112,8 @@ class Metre:
 
 class StreamTime:
     # TODO: may precompute delays to save some precious cycles
-    def __init__(self, time, frame, n_frames):
-        self.frame = frame
+    def __init__(self, time, index, n_frames):
+        self.index = index
         self.n_frames = n_frames
         if isinstance(time, list):
             self.current = time[0]
@@ -143,7 +143,7 @@ class StreamTime:
         return t - self.current
 
     def __repr__(self):
-        return f"StreamTime({self.current}, {self.input}, {self.output}, {self.frame})"
+        return f"StreamTime({self.current}, {self.input}, {self.output}, {self.index})"
 
 
 class EMA_MinMaxTracker:

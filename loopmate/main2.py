@@ -138,7 +138,11 @@ def plan_callback(loop: Loop):
         trigger = loop.actions.plans.get()
         if isinstance(trigger, RecordTrigger):
             print("Record in plan_callback")
-            loop.record()
+            # TODO: this will run into trouble if result_type == 8
+            if loop.rec.data.result_type == 0:
+                loop.start_recording()
+            else:
+                loop.stop_recording()
             continue
         elif isinstance(trigger, BackCaptureTrigger):
             loop.backcapture(trigger.n_loops)

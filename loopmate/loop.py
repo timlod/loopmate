@@ -27,7 +27,7 @@ class Audio:
     audio: np.ndarray = field(repr=False)
     loop_length: int | None = None
     pos_start: int = 0
-    current_sample: int = 0
+    current_index: int = 0
     n: int = field(init=False)
     channels: int = field(init=False)
 
@@ -71,23 +71,23 @@ class Audio:
 
         :param samples: number of audio samples to return
         """
-        leftover = self.n - self.current_sample
+        leftover = self.n - self.current_index
         chunksize = min(leftover, samples)
-        current_sample = self.current_sample
+        current_index = self.current_index
 
         if leftover <= samples:
             out = self.audio[
                 np.r_[
-                    current_sample : current_sample + chunksize,
+                    current_index : current_index + chunksize,
                     : samples - leftover,
                 ]
             ]
-            self.current_sample = samples - leftover
+            self.current_index = samples - leftover
         else:
-            out = self.audio[current_sample : current_sample + chunksize]
-            self.current_sample += samples
+            out = self.audio[current_index : current_index + chunksize]
+            self.current_index += samples
 
-        self.actions.run(out, current_sample, self.current_sample)
+        self.actions.run(out, current_index, self.current_index)
         return out
 
     def reset_audio(self):
@@ -98,7 +98,7 @@ class Audio:
         self.n_loop_iter = 1
 
     def __repr__(self):
-        return f"Audio: {self.audio.shape=}, {self.loop_length=}, {self.n_loop_iter=}, {self.current_sample=}"
+        return f"Audio: {self.audio.shape=}, {self.loop_length=}, {self.n_loop_iter=}, {self.current_index=}"
 
 
 class Loop:
@@ -136,9 +136,7 @@ class Loop:
         else:
             if not isinstance(audio, Audio):
                 audio = Audio(audio, self.anchor.loop_length)
-            audio.actions.append(
-                Start(audio.current_sample, audio.loop_length)
-            )
+            audio.actions.append(Start(audio.current_index, audio.loop_length))
             self.new_audios.put(audio)
             self.audios.append(audio)
 
@@ -159,21 +157,21 @@ class Loop:
 
             # If no audio is present
             if self.anchor is None:
-                current_sample = 0
+                current_index = 0
             else:
-                current_sample = self.anchor.current_sample
+                current_index = self.anchor.current_index
 
-            # Align current frame for newly put audio - maybe not necessary now
+            # Align current_index for newly put audio - maybe not necessary now
             for i in range(self.new_audios.qsize()):
                 audio = self.new_audios.get()
-                current_loop_iter = audio.current_sample // audio.loop_length
-                audio.current_sample = (
-                    current_loop_iter * audio.loop_length + current_sample
+                current_loop_iter = audio.current_index // audio.loop_length
+                audio.current_index = (
+                    current_loop_iter * audio.loop_length + current_index
                 )
 
-            # These times/frame refer to the frame that is processed in this
+            # These times/frame refer to the block that is processed in this
             # callback
-            self.callback_time = StreamTime(time, current_sample, frames)
+            self.callback_time = StreamTime(time, current_index, frames)
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
@@ -190,27 +188,27 @@ class Loop:
             # separately
             self.last_out.append((self.callback_time, outdata.copy()))
 
-            next_frame = (
-                0 if self.anchor is None else self.anchor.current_sample
+            next_index = (
+                0 if self.anchor is None else self.anchor.current_index
             )
-            self.actions.run(outdata, current_sample, next_frame)
+            self.actions.run(outdata, current_index, next_index)
 
         return callback
 
     def start(self):
         self.stream.stop()
-        # self.current_sample = 0
+        # self.current_index = 0
         if self.anchor is not None:
             self.actions.actions.append(
-                Start(self.anchor.current_sample, self.anchor.loop_length)
+                Start(self.anchor.current_index, self.anchor.loop_length)
             )
         self.stream.start()
 
     def stop(self):
         if self.anchor is not None:
-            print(f"Stopping stream action. {self.anchor.current_sample}")
+            print(f"Stopping stream action. {self.anchor.current_index}")
             # self.actions.actions.append(
-            #     Stop(self.anchor.current_sample, self.anchor.loop_length)
+            #     Stop(self.anchor.current_index, self.anchor.loop_length)
             # )
             self.stream.stop()
 
@@ -235,7 +233,7 @@ class Loop:
 
         if self.anchor is not None:
             start_sample = (
-                self.callback_time.frame
+                self.callback_time.index
                 + samples_since
                 + round(self.callback_time.output_delay * config.sr)
             )
@@ -291,7 +289,7 @@ class Loop:
         )
         if n > n_loop_iter * loop_length:
             n = n % loop_length
-        audio = Audio(rec, loop_length, self.start_sample, current_sample=n)
+        audio = Audio(rec, loop_length, self.start_sample, current_index=n)
         self.add_track(audio)
 
         while self.rec.data.recording_end > self.rec_audio.counter:

@@ -75,11 +75,9 @@ class MidiQueue:
                     bpm_quant = False
                 self.in_rec = not self.in_rec
                 if self.in_rec:
-                    # self.loop.start_record(config.record_channels)
-                    self.loop.startrec(config.record_channels)
+                    self.loop.start_recording(config.record_channels)
                 else:
-                    # self.loop.stop_record()
-                    self.loop.stoprec()
+                    self.loop.stop_recording()
             case 57:
                 # Trigger record action at next loop which spawns another
                 # record (recording stop)

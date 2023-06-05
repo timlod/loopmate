@@ -227,7 +227,7 @@ class Loop:
             + round(self.callback_time.input_delay * config.sr)
         ), samples_since
 
-    def startrec(self, lenience=config.sr * 0.2, channels=[0, 1]):
+    def start_recording(self, lenience=config.sr * 0.2, channels=[0, 1]):
         # recording_start is the counter in rec_audio coinciding with the
         # event, start_sample is the sample number within the loop the event
         # coincides with. For a new loop this will be 0.
@@ -253,7 +253,7 @@ class Loop:
 
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
-    def stoprec(self, lenience=config.sr * 0.2):
+    def stop_recording(self, lenience=config.sr * 0.2):
         self.rec.data.recording_end, _ = self.event_counter()
         N = self.rec.data.recording_end - self.rec.data.recording_start
 
@@ -348,9 +348,9 @@ class Loop:
         :param n: number of loop_lengths to take.
         """
         print(f"Backcapture {n=}!")
-        self.startrec(self.anchor.loop_length // 2)
+        self.start_recording(self.anchor.loop_length // 2)
         self.rec.data.recording_start -= self.anchor.loop_length * n
-        self.stoprec(self.anchor.loop_length // 2)
+        self.stop_recording(self.anchor.loop_length // 2)
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
     def last_sound(self, min_db, cut_db):

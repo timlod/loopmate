@@ -1,3 +1,30 @@
+"""
+actions
+=======
+
+Actions and Triggers which operate on audio loops in realtime.
+
+Defines 3 important classes:
+
+    1. Actions
+
+    - a class containing deques/priority queues contains Action objects which
+      operate on stretches of looped audio.  It contains logic to fire triggers
+      and run actions on audio buffers in real-time.
+
+    2. Action:
+
+    - A superclass that defines functionality to seamlessly apply some
+      operations to audio buffers in real-time.  Examples: Mute, Play sample or
+      apply Audio FX
+
+    3. Trigger:
+
+    - A superclass that defines functionality to trigger some action when a
+      certain point in looped audio is reached.  Examples: trigger Mute or
+      Record actions when the loop boundary is reached (on the next loop)
+"""
+
 from __future__ import annotations
 
 import queue
@@ -16,6 +43,10 @@ RAMP = np.linspace(1, 0, blend_windowsize, dtype=np.float32)[:, None]
 
 @dataclass
 class Action:
+    """
+    Action that manipulates audio buffers at specified times.
+    """
+
     start: int
     end: int
     loop_length: int
@@ -39,26 +70,48 @@ class Action:
         self.current_sample = 0
         self.consumed = False
 
-    def trigger(self, current_frame, next_frame):
+    def trigger(self, current_index, next_index):
+        """Run at every step to signal when the out buffer enters the start/end
+        boundaries of this action.
+
+        :param current_index: first sample index of outdata in full audio loop
+        :param next_index: first sample index of outdata in full audio loop for
+            the next step.  Will be != current_index + n_samples only when
+            wrapping around at the loop boundary.
+        """
         if self.end > self.start:
-            return self.start <= current_frame <= self.end
+            return self.start <= current_index <= self.end
         else:
             # Include case where action lasts all the time, i.e. from 0 to 0
-            return (current_frame >= self.end) and (
-                current_frame <= self.start
+            return (current_index >= self.end) and (
+                current_index <= self.start
             )
 
-    def index(self, current_frame, next_frame):
+    def index_outdata(self, current_index, next_index):
+        """Return offsets for indexing part of the outdata buffer to use in
+        this action's next run step.  This is mostly to accomodate edge cases
+        where an action starts/ends within a buffer.
+
+        :param current_index: first sample index of outdata in full audio loop
+        :param next_index: first sample index of outdata in full audio loop for
+            the next step.  Will be != current_index + n_samples only when
+            wrapping around at the loop boundary.
+        """
         # Note that this only gets triggered if start is within or after
         # the current frame, that's why we can use max
-        offset_a = max(0, self.start - current_frame)
+        offset_a = max(0, self.start - current_index)
         # If data wraps around we need to index 'past the end'
-        offset_b = self.end - current_frame
-        if next_frame < current_frame:
-            offset_b += next_frame
+        offset_b = self.end - current_index
+        if next_index < current_index:
+            offset_b += next_index
         return offset_a, offset_b
 
     def run(self, data):
+        """Run action on incoming audio and updates internal counters
+        accordingly.
+
+        :param data: audio buffer
+        """
         self.do(data)
         self.current_sample += len(data)
 
@@ -75,9 +128,14 @@ class Action:
         return self.priority < other.priority
 
     def do(self, outdata):
-        raise NotImplementedError("Subclasses need to inherit this!")
+        """Perform manipulations on the output buffer.
+
+        :param outdata: output buffer
+        """
+        raise NotImplementedError("Subclasses need to override this!")
 
     def cancel(self):
+        """Immediately cancel/stop this action."""
         self.current_sample = self.n
         self.loop = False
         self.countdown = 0
@@ -156,7 +214,7 @@ class Sample(Action):
         ]
         data[: len(sample)] += self.gain * sample
 
-    def index(self, current_frame, next_frame):
+    def index(self, current_index, next_index):
         return 0, self.n
 
 
@@ -166,7 +224,7 @@ class Effect(Action):
     ):
         """Initialize effect which will fade in at a certain frame.
 
-        :param start: start effect at this frame (inside looped audio)
+        :param start: start effect at this sample (inside looped audio)
         :param n: length of looped audio
         :param transformation: callable of form f(outdata) which returns an
             ndarray of the same size as outdata
@@ -205,7 +263,7 @@ class Mute(Effect):
 
 class Start(Action):
     def __init__(self, start: int, loop_length: int, priority: int = 100):
-        """Initialize effect which will fade in at a certain frame.
+        """Initialize Start action which will fade in containing audio.
 
         :param start: start effect at this frame (inside looped audio)
         :param priority: indicate priority at which to queue this action
@@ -222,7 +280,7 @@ class Start(Action):
 
 class Stop(Action):
     def __init__(self, start: int, loop_length: int, priority: int = 100):
-        """Initialize effect which will fade in at a certain frame.
+        """Initialize Stop action which will fade out containing audio.
 
         :param start: start effect at this frame (inside looped audio)
         :param priority: indicate priority at which to queue this action
@@ -239,11 +297,16 @@ class Stop(Action):
 
 @dataclass
 class Trigger:
+    """
+    Trigger that fires when a certain location in the loop is reached.
+    """
+
     when: int
     loop_length: int
 
     _: KW_ONLY
-    # If True, loop this action instead of consuming it
+    # If True, loop this action instead of consuming it until the countdown
+    # reaches 0.
     countdown: int = 0
     # If loop is True, we want to spawn every time
     # else, we want to spawn after countdown and consume
@@ -259,6 +322,10 @@ class Trigger:
         self.i = self.countdown
 
     def run(self, actions):
+        """Run this trigger.  This means count down to trigger or consume.
+
+        :param actions: Actions object that can be manipulated if triggered
+        """
         if self.i > 0:
             self.i -= 1
             self.consumed = False
@@ -270,25 +337,45 @@ class Trigger:
                 self.consumed = True
 
     def do(self, actions):
+        """By default, simply put this trigger in the plan queue.  Override to
+        trigger different things.
+
+        :param actions: Actions object
+        """
         actions.plans.put_nowait(self)
 
     def __lt__(self, other):
         return self.priority < other.priority
 
-    def trigger(self, current_frame, next_frame):
-        if current_frame > next_frame:
-            if (self.when >= current_frame) or (self.when < next_frame):
+    def trigger(self, current_index, next_index):
+        """Returns True if this trigger activates given the current location.
+
+        :param current_index: first sample index of outdata in full audio loop
+        :param next_index: first sample index of outdata in full audio loop for
+            the next step.  Will be != current_index + n_samples only when
+            wrapping around at the loop boundary.
+        """
+        if current_index > next_index:
+            if (self.when >= current_index) or (self.when < next_index):
                 return True
             else:
                 return False
         else:
-            return current_frame <= self.when < next_frame
+            return current_index <= self.when < next_index
 
-    def index(self, current_frame, next_frame):
-        if current_frame > next_frame:
-            return self.loop_length - current_frame + self.when
+    def index(self, current_index, next_index):
+        """Return offsets for indexing part of the outdata buffer to use in
+        this triggers's next run step.
+
+        :param current_index: first sample index of outdata in full audio loop
+        :param next_index: first sample index of outdata in full audio loop for
+            the next step.  Will be != current_index + n_samples only when
+            wrapping around at the loop boundary.
+        """
+        if current_index > next_index:
+            return self.loop_length - current_index + self.when
         else:
-            return self.when - current_frame
+            return self.when - current_index
 
     def cancel(self):
         self.loop = False
@@ -334,22 +421,25 @@ class Actions:
     def append(self, action: Action | Trigger):
         self.actions.append(action)
 
-    def run(self, outdata, current_frame, next_frame):
+    def run(self, outdata, current_index, next_index):
         """Run all actions (to be called once every callback)
 
         :param outdata: outdata as passed into sd callback (will fill portaudio
             buffer)
-        :param current_frame: first sample index of outdata in full audio
+        :param current_index: first sample index of outdata in full audio loop
+        :param next_index: first sample index of outdata in full audio loop for
+            the next step.  Will be != current_index + n_samples only when
+            wrapping around at the loop boundary.
         """
         # Activate actions (puts them in active queue)
         for action in self.actions:
-            if action.trigger(current_frame, next_frame):
+            if action.trigger(current_index, next_index):
                 self.active.put_nowait(action)
 
         while not self.active.empty():
             action = self.active.get_nowait()
             if isinstance(action, Trigger):
-                print(f"Trigger {action}, {current_frame}")
+                print(f"Trigger {action}, {current_index}")
                 action.run(self)
                 if action.consumed:
                     print(self.plans)
@@ -360,7 +450,9 @@ class Actions:
                 continue
 
             # Actions
-            offset_a, offset_b = action.index(current_frame, next_frame)
+            offset_a, offset_b = action.index_outdata(
+                current_index, next_index
+            )
             action.run(outdata[offset_a:offset_b])
             if action.consumed:
                 print(f"consumed {action}")

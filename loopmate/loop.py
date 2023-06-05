@@ -98,7 +98,7 @@ class Audio:
         self.n_loop_iter = 1
 
     def __repr__(self):
-        return f"{self.n=}, {self.audio.shape=}, {self.loop_length=}, {self.n_loop_iter=}, {self.current_sample=}"
+        return f"Audio: {self.audio.shape=}, {self.loop_length=}, {self.n_loop_iter=}, {self.current_sample=}"
 
 
 class Loop:
@@ -307,6 +307,7 @@ class Loop:
         )
         audio.audio[self.start_sample : self.start_sample + N] = rec
         self.rec.data.result_type = 0
+        print(f"Added {audio}!")
 
     def antipop(self, audio, xfade_end, end_sample):
         """Removes audible pop by blending loop boundaries in two possible

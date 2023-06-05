@@ -251,6 +251,8 @@ class Loop:
             self.rec.data.channels = channels_to_int(channels)
             self.start_sample = 0
 
+        # Signal recording is in progress
+        self.rec.data.result_type = 1
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
     def stop_recording(self, lenience=config.sr * 0.2):

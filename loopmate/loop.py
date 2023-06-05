@@ -3,6 +3,7 @@ from __future__ import annotations
 import queue
 from collections import deque
 from dataclasses import dataclass, field
+from warnings import warn
 
 import numpy as np
 import sounddevice as sd
@@ -291,7 +292,7 @@ class Loop:
             if start_sample > self.anchor.loop_length:
                 start_sample -= self.anchor.loop_length
             self.start_sample, move = quantize(
-                start_sample, self.anchor.loop_length, lenience
+                start_sample, self.anchor.loop_length, lenience=lenience
             )
             self.rec.data.recording_start += move
         else:

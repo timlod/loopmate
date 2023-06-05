@@ -47,6 +47,7 @@ class Audio:
             self.n_loop_iter = 1
         else:
             # Need to zero-pad right to a power of 2 amount of loop iterations
+            # TODO: consider rhythms that aren't based on powers of 2
             self.n_loop_iter = int(
                 2 ** np.ceil(np.log2(self.n / self.loop_length))
             )

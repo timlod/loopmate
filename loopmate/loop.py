@@ -371,16 +371,9 @@ class Loop:
 
     def backcapture(self, n):
         print(f"Backcapture {n=}!")
-        t = self.stream.time
-        recording = Recording(
-            self.rec_audio,
-            self.callback_time,
-            self.stream.time,
-            self.anchor.loop_length,
-        )
-        recording.rec_start -= recording.loop_length * n
-        audio = recording.finish(t, self.callback_time)
-        self.add_track(audio)
+        self.startrec(self.anchor.loop_length // 2)
+        self.rec.data.recording_start -= self.anchor.loop_length * n
+        self.stoprec(self.anchor.loop_length // 2)
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
     def last_sound(self, min_db, cut_db):

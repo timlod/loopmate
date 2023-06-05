@@ -102,6 +102,11 @@ class Audio:
 
 
 class Loop:
+    """
+    Main class to set up the looper.  Creates the sd.Stream, holds loop anchor
+    and list of audio tracks to loop, and the global action queue.
+    """
+
     def __init__(self, recording, anchor: Audio | None = None):
         self.audios = []
         self.new_audios = queue.Queue()
@@ -195,9 +200,11 @@ class Loop:
 
         return callback
 
-    def start(self):
+    def start(self, restart=False):
+        """Start stream."""
         self.stream.stop()
-        # self.current_index = 0
+        if restart:
+            self.current_index = 0
         if self.anchor is not None:
             self.actions.actions.append(
                 Start(self.anchor.current_index, self.anchor.loop_length)
@@ -205,6 +212,7 @@ class Loop:
         self.stream.start()
 
     def stop(self):
+        """Stop stream."""
         if self.anchor is not None:
             print(f"Stopping stream action. {self.anchor.current_index}")
             # self.actions.actions.append(
@@ -225,7 +233,16 @@ class Loop:
             + round(self.callback_time.input_delay * config.sr)
         ), samples_since
 
-    def start_recording(self, lenience=config.sr * 0.2, channels=[0, 1]):
+    def start_recording(
+        self, lenience: int = config.sr * 0.2, channels: list[int] = [0, 1]
+    ):
+        """Start recording of a new loop.  Works with both anchor and
+        subsequent loops.
+
+        :param lenience: lenience in samples used for the quantization of
+            non-anchor loops to the loop boundaries.
+        :param channels: (not yet used) defines which channels to record
+        """
         # recording_start is the counter in rec_audio coinciding with the
         # event, start_sample is the sample number within the loop the event
         # coincides with. For a new loop this will be 0.
@@ -254,6 +271,11 @@ class Loop:
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
     def stop_recording(self, lenience=config.sr * 0.2):
+        """Stop an ongoing recording and adds the recorded audio to the loop.
+
+        :param lenience: lenience in samples used for the quantization of
+            non-anchor loops to the loop boundaries.
+        """
         self.rec.data.recording_end, _ = self.event_counter()
         N = self.rec.data.recording_end - self.rec.data.recording_start
 

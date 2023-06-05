@@ -148,6 +148,12 @@ class Loop:
         """
 
         def callback(indata, outdata, frames, time, status):
+            """sounddevice callback.  See
+            https://python-sounddevice.readthedocs.io/en/latest/api/streams.html#sounddevice.Stream
+
+            Note that frames refers to the number of audio samples (not
+            renaming due to sd convention only)
+            """
             if status:
                 print(status)
 
@@ -303,6 +309,23 @@ class Loop:
         self.rec.data.result_type = 0
 
     def antipop(self, audio, xfade_end, end_sample):
+        """Removes audible pop by blending loop boundaries in two possible
+        ways:
+
+            1. If the audio fits completely onto the anchor loop (or is the
+               anchor loop), it crossfades the end of the audio with the
+               samples collected !before!  the recording started.  This can
+               lead to a slightly more natural loop
+
+            2. If the audio covers just part of the loop length, blends the
+               beginning/end of the audio with zeros.
+
+        :param audio: audio to smooth the edges of
+        :param xfade_end: blend_samples number of samples of recording from
+            before audio
+        :param end_sample: location on the scale of loop_length of the last
+            sample in audio
+        """
         # If we have a full loop, blend from pre-recording, else 0 blend
         if (end_sample % self.anchor.loop_length) == 0:
             audio[-config.blend_samples :] = (
@@ -314,6 +337,16 @@ class Loop:
             audio[-n_pw:] *= POP_WINDOW[-n_pw:]
 
     def backcapture(self, n):
+        """Immediately captures audio the of the last n loops.  If close to the
+        end of one loop, it will wait a little and take the latest loop.
+
+        Example: The anchor loop runs 4 seconds.  If backcapture(1) is
+        activated 1s into the loop, immediately take the recording from the
+        last loop (5s until 1s ago) as a new loop.  If backcapture(1) is
+        activated 3s into the loop, instead wait 1s and take the last 4s.
+
+        :param n: number of loop_lengths to take.
+        """
         print(f"Backcapture {n=}!")
         self.startrec(self.anchor.loop_length // 2)
         self.rec.data.recording_start -= self.anchor.loop_length * n
@@ -331,6 +364,11 @@ class Loop:
         sound and recording it with the microphone.  Calculates the time
         difference between when the sound was played and when it was received.
         Returns the air delay in number of samples.
+
+        Note: This function currently just checks for the loudest impulse in
+        the last second or so recorded after it plays a click.  Make sure the
+        room is quiet enough such that the recorded click is really the loudest
+        sound playing during that time.
         """
         ll = 0 if self.anchor is None else self.anchor.loop_length
         self.actions.append(Sample(CLAVE, ll, 1.5))
@@ -350,6 +388,14 @@ class Loop:
 
 
 class ExtraOutput:
+    """
+    Add an additional (headphone) output which plays audio at the exact same
+    time as the main output, accounting for any latency incurred by distance
+    from speakers.  This is meant for situations in which a PA plays the
+    performance from some meters apart, but loops are recorded by listening
+    via headphones while muting the PA during recording of additional loops.
+    """
+
     def __init__(self, loop: Loop):
         self.loop = loop
         self.callback_time: StreamTime = None
@@ -388,6 +434,12 @@ class ExtraOutput:
         return callback
 
     def align(self, air_delay=config.air_delay):
+        """Align this output to the main output.  Discards queued output
+        buffers until both outputs are reasonably close to each other.
+
+        :param air_delay: latency to account for from distance between PA and
+            headphones.
+        """
         self_od = -self.callback_time.output_delay
         loop_od = -self.loop.callback_time.output_delay
         self.add_delay = loop_od + air_delay - self_od

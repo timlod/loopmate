@@ -65,7 +65,7 @@ class Action:
             self.n = self.start + self.loop_length - self.end
 
         # Current sample !inside action between start and end
-        # don't mix up with current_frame!
+        # don't mix up with current_index in loop!
         self.current_sample = 0
         self.consumed = False
 
@@ -97,7 +97,7 @@ class Action:
             wrapping around at the loop boundary.
         """
         # Note that this only gets triggered if start is within or after
-        # the current frame, that's why we can use max
+        # the current block, that's why we can use max
         offset_a = max(0, self.start - current_index)
         # If data wraps around we need to index 'past the end'
         offset_b = self.end - current_index
@@ -221,7 +221,7 @@ class Effect(Action):
     def __init__(
         self, start: int, n: int, transformation: Callable, priority: int = 1
     ):
-        """Initialize effect which will fade in at a certain frame.
+        """Initialize effect which will fade in starting at a certain sample.
 
         :param start: start effect at this sample (inside looped audio)
         :param n: length of looped audio
@@ -264,7 +264,7 @@ class Start(Action):
     def __init__(self, start: int, loop_length: int, priority: int = 100):
         """Initialize Start action which will fade in containing audio.
 
-        :param start: start effect at this frame (inside looped audio)
+        :param start: start effect at this sample (inside looped audio)
         :param priority: indicate priority at which to queue this action
         """
         blend = CrossFade(left_right=False)
@@ -281,7 +281,7 @@ class Stop(Action):
     def __init__(self, start: int, loop_length: int, priority: int = 100):
         """Initialize Stop action which will fade out containing audio.
 
-        :param start: start effect at this frame (inside looped audio)
+        :param start: start effect at this sample (inside looped audio)
         :param priority: indicate priority at which to queue this action
         """
         blend = CrossFade()

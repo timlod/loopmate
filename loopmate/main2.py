@@ -133,6 +133,10 @@ class MidiQueue:
 
 
 def plan_callback(loop: Loop):
+    """Callback which picks up triggers/actions from the plan queue.
+
+    :param loop: Loop object containing Actions
+    """
     while True:
         print("plan")
         trigger = loop.actions.plans.get()
@@ -152,15 +156,22 @@ def plan_callback(loop: Loop):
 
 
 def analysis_target():
+    """
+    target function for the multiprocessing.Process which will run ongoing
+    analysis on the audio which is constantly recorded.
+    """
     with lr.RecAnalysis(config.rec_n, config.channels) as rec:
         rec.run()
     print("done analysis")
 
 
 def ondemand_target():
+    """target function for the multiprocessing.Process which will run
+    analysis like onset quantization or BPM estimation on demand.
+    """
     with lr.AnalysisOnDemand(config.rec_n, config.channels) as rec:
         rec.run()
-    print("done a2")
+    print("done ondemand")
 
 
 if __name__ == "__main__":

@@ -48,11 +48,23 @@ def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
 
 
 def make_recording_struct(
-    N,
-    channels,
+    n=config.REC_N,
+    channels=config.CHANNELS,
+    n_fft=config.N_FFT,
+    hop_length=config.HOP_LENGTH,
+    tg_win_length=config.TG_WIN_LENGTH,
     int_type=ctypes.c_int64,
 ):
-    N_stft = int(np.ceil(N / config.HOP_LENGTH))
+    """Create a ctypes.Structure to use with shared memory in IPC.
+
+    :param n: number of audio samples per channel
+    :param channels: number of audio channels
+    :param n_fft: size of the fft for the stft
+    :param hop_length: hop_length of the stft
+    :param tg_win_len: window length for the tempogram
+    :param int_type: integer ctype to use
+    """
+    n_stft = int(np.ceil(n / hop_length))
 
     class CRecording(ctypes.Structure):
         _fields_ = [
@@ -74,18 +86,18 @@ def make_recording_struct(
             # Result? array?
             ("write_counter", int_type),
             ("counter", int_type),
-            ("data", ctypes.c_float * (N * channels)),
+            ("data", ctypes.c_float * (n * channels)),
             ("stft_counter", int_type),
             (
                 "stft",
-                ctypes.c_float * (2 * (1 + int(config.N_FFT / 2)) * N_stft),
+                ctypes.c_float * (2 * (1 + int(n_fft / 2)) * n_stft),
             ),
             ("onset_env_counter", int_type),
-            ("onset_env", ctypes.c_float * N_stft),
-            ("mov_max", ctypes.c_float * N_stft),
-            ("mov_avg", ctypes.c_float * N_stft),
+            ("onset_env", ctypes.c_float * n_stft),
+            ("mov_max", ctypes.c_float * n_stft),
+            ("mov_avg", ctypes.c_float * n_stft),
             ("tg_counter", int_type),
-            ("tg", ctypes.c_float * config.TG_WIN_LEN * N_stft),
+            ("tg", ctypes.c_float * tg_win_length * n_stft),
             ("analysis_action", int_type),
             ("quit", ctypes.c_bool),
         ]
@@ -94,8 +106,10 @@ def make_recording_struct(
 
 
 class RecAudio:
-    def __init__(self, N, channels, name="recording"):
-        cstruct = make_recording_struct(N, channels)
+    def __init__(
+        self, n=config.REC_N, channels=config.CHANNELS, name="recording"
+    ):
+        cstruct = make_recording_struct(n, channels)
         self.cstruct = cstruct
         self.shm = SharedMemory(
             name=name, create=True, size=ctypes.sizeof(cstruct)
@@ -103,7 +117,7 @@ class RecAudio:
         self.data = cstruct.from_buffer(self.shm.buf)
         self.audio = CircularArray(
             np.ndarray(
-                (N, channels),
+                (n, channels),
                 dtype=np.float32,
                 buffer=self.shm.buf[cstruct.data.offset :],
             ),
@@ -126,12 +140,35 @@ class RecAudio:
 
 
 class RecAnalysis:
-    def __init__(self, N, channels, name="recording", poll_time=0.0001):
+    """
+    Class to run ongoing analysis in another process/thread.  Accesses shared
+    memory and makes circular arrays for various analytical arrays, such as
+    live audio, its STFT and, onset envelope and tempogram.  The latter are
+    updated whenever the counter inside the shared memory buffer is incremented
+    (presumably in the main process).
+    """
+
+    def __init__(
+        self,
+        n=config.REC_N,
+        channels=config.CHANNELS,
+        n_fft=config.N_FFT,
+        hop_length=config.HOP_LENGTH,
+        tg_win_length=config.TG_WIN_LENGTH,
+        name="recording",
+        poll_time=0.0001,
+    ):
         # TODO: take N from config or also kwarg other config items
         self.poll_time = poll_time
 
-        self.N_stft = int(np.ceil(N / config.HOP_LENGTH))
-        cstruct = make_recording_struct(N, channels)
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.n_stft = int(np.ceil(n / hop_length))
+        self.tg_win_length = tg_win_length
+        self.tg_pad = 2 * tg_win_length - 1
+        cstruct = make_recording_struct(
+            n, channels, n_fft, hop_length, tg_win_length
+        )
 
         self.shm = SharedMemory(
             name=name, create=False, size=ctypes.sizeof(cstruct)
@@ -139,7 +176,7 @@ class RecAnalysis:
         self.data = cstruct.from_buffer(self.shm.buf)
         self.audio = CircularArray(
             np.ndarray(
-                (N, channels),
+                (n, channels),
                 dtype=np.float32,
                 buffer=self.shm.buf[cstruct.data.offset :],
             ),
@@ -155,7 +192,7 @@ class RecAnalysis:
         tg_counter = SharedInt(self.shm, cstruct.tg_counter.offset)
         self.stft = CircularArray(
             np.ndarray(
-                (1 + int(config.N_FFT / 2), self.N_stft),
+                (1 + int(n_fft / 2), self.n_stft),
                 dtype=np.complex64,
                 buffer=self.shm.buf[cstruct.stft.offset :],
             ),
@@ -164,7 +201,7 @@ class RecAnalysis:
         )
         self.onset_env = CircularArray(
             np.ndarray(
-                self.N_stft,
+                self.n_stft,
                 dtype=np.float32,
                 buffer=self.shm.buf[cstruct.onset_env.offset :],
             ),
@@ -172,7 +209,7 @@ class RecAnalysis:
         )
         self.tg = CircularArray(
             np.ndarray(
-                (config.TG_WIN_LEN, self.N_stft),
+                (tg_win_length, self.n_stft),
                 dtype=np.float32,
                 buffer=self.shm.buf[cstruct.tg.offset :],
             ),
@@ -181,24 +218,23 @@ class RecAnalysis:
         )
         # As these have offset cursors, we don't use CircularArray
         self.mov_max = np.ndarray(
-            self.N_stft,
+            self.n_stft,
             dtype=np.float32,
             buffer=self.shm.buf[cstruct.mov_max.offset :],
         )
         self.mov_avg = np.ndarray(
-            self.N_stft,
+            self.n_stft,
             dtype=np.float32,
             buffer=self.shm.buf[cstruct.mov_avg.offset :],
         )
-        self.window = sig.windows.hann(config.N_FFT).astype(np.float32)
-        self.tg_window = sig.windows.hann(config.TG_WIN_LEN).astype(np.float32)
+        self.window = sig.windows.hann(n_fft).astype(np.float32)
+        self.tg_window = sig.windows.hann(tg_win_length).astype(np.float32)
         self.onset_env_minmax = EMA_MinMaxTracker(
             min0=0, minmin=0, max0=1, alpha=0.001
         )
         self.logspec_minmax = EMA_MinMaxTracker(
             max0=10, minmax=0, alpha=0.0005
         )
-        self.peaks = PeakTracker(self.N_stft, config.ONSET_DET_OFFSET)
 
     def run(self):
         while not self.data.quit:
@@ -214,7 +250,7 @@ class RecAnalysis:
         self.fft()
 
     def fft(self):
-        stft = np.fft.rfft(self.window * self.audio[-config.N_FFT :].mean(-1))
+        stft = np.fft.rfft(self.window * self.audio[-self.n_fft :].mean(-1))
         self.stft.write(stft[:, None])
         self.onset_strength()
         self.tempogram()
@@ -250,12 +286,12 @@ class RecAnalysis:
         tg = np.fft.irfft(
             magsquared(
                 np.fft.rfft(
-                    self.tg_window * self.onset_env[-config.TG_WIN_LEN :],
-                    n=config.TG_PAD,
+                    self.tg_window * self.onset_env[-self.tg_win_length :],
+                    n=self.tg_pad,
                 )
             ),
-            n=config.TG_PAD,
-        )[: config.TG_WIN_LEN, None]
+            n=self.tg_pad,
+        )[: self.tg_win_length, None]
         # This one increments the shared counter
         self.tg.write(tg / (tg.max() + 1e-10))
 
@@ -264,6 +300,8 @@ class RecAnalysis:
 
     def __exit__(self, exc_type, exc_value, traceback):
         print("Exiting RecAnalysis")
+        # Delete all shared memory objects. This shouldn't be necessary, but
+        # for some reason they're not cleared automatically.
         del (
             self.data,
             self.audio,
@@ -278,11 +316,20 @@ class RecAnalysis:
 
 
 class AnalysisOnDemand(RecAnalysis):
-    def __init__(self, N, channels, name="recording", poll_time=0.0001):
-        super().__init__(N, channels, name, poll_time)
-        self.tf = tempo_frequencies(
-            config.TG_WIN_LEN, config.HOP_LENGTH, sr=config.SR
+    def __init__(
+        self,
+        n=config.REC_N,
+        channels=config.CHANNELS,
+        n_fft=config.N_FFT,
+        hop_length=config.HOP_LENGTH,
+        tg_win_length=config.TG_WIN_LENGTH,
+        name="recording",
+        poll_time=0.0001,
+    ):
+        super().__init__(
+            n, channels, n_fft, hop_length, tg_win_length, name, poll_time
         )
+        self.tf = tempo_frequencies(tg_win_length, hop_length, sr=config.SR)
         self.bpm_logprior = (
             -0.5 * ((np.log2(self.tf) - np.log2(100)) / 1.0) ** 2
         )[:, None]
@@ -365,8 +412,8 @@ class AnalysisOnDemand(RecAnalysis):
 
         # Find the strengths of the onsets in the onset envelope
         strengths = []
-        offset = samples_to_frames(offset, config.HOP_LENGTH)
-        for onset in samples_to_frames(onsets, config.HOP_LENGTH):
+        offset = samples_to_frames(offset, self.hop_length)
+        for onset in samples_to_frames(onsets, self.hop_length):
             start = max(0, offset + onset - window_size)
             end = min(len(onset_envelope), offset + onset + window_size)
             strengths.append(np.max(onset_envelope[start:end]))
@@ -395,7 +442,7 @@ class AnalysisOnDemand(RecAnalysis):
     def quantize_start(self, lenience=config.SR * 0.1):
         # Sleep for a bit to make sure we account for bad timing, as well as
         # the delay from onset detection
-        det_delay_s = config.ONSET_DET_OFFSET * config.HOP_LENGTH / config.SR
+        det_delay_s = config.ONSET_DET_OFFSET * self.hop_length / config.SR
         wait_for_ms = 250
         lookaround_samples = int(wait_for_ms / 1000 * config.SR)
         # Wait for wait_for_ms as well as the onset detection delay
@@ -406,7 +453,7 @@ class AnalysisOnDemand(RecAnalysis):
         # We want to get this many samples before the reference as well
 
         start = ref + lookaround_samples
-        start_frames = -samples_to_frames(start, config.HOP_LENGTH)
+        start_frames = -samples_to_frames(start, self.hop_length)
         # In practice, the algorithm finds the onset somewhat later, so
         # we decrement by one to be closer to the actual onset
         onsets, onset_envelope = self.detect_onsets(start_frames)
@@ -415,8 +462,8 @@ class AnalysisOnDemand(RecAnalysis):
         # quantize to. Therefore, let's weight by distance from press and size
         # of the peak. subtract one frame after checking height
         onsets = frames_to_samples(
-            onsets - samples_to_frames(lookaround_samples, config.HOP_LENGTH),
-            config.HOP_LENGTH,
+            onsets - samples_to_frames(lookaround_samples, self.hop_length),
+            self.hop_length,
         )
         print(f"RECA: onsets (start): {onsets}")
         _, move = self.quantize_onsets(
@@ -437,19 +484,20 @@ class AnalysisOnDemand(RecAnalysis):
               from start and the estimated BPM
         """
         ref_start = self.audio.elements_since(self.data.recording_start)
-        start_frame = -samples_to_frames(ref_start, config.HOP_LENGTH)
+        start_frame = -samples_to_frames(ref_start, self.hop_length)
         n = self.data.recording_end - self.data.recording_start
-        n_frames = samples_to_frames(n, config.HOP_LENGTH)
+        n_frames = samples_to_frames(n, self.hop_length)
         end_frame = start_frame + n_frames
         if end_frame > 0:
             end_frame = 0
 
         tg = self.tg[start_frame:end_frame]
         onsets, onset_envelope = self.detect_onsets(start_frame)
+
         bpm = self.tempo(tg)[0]
         beat_len = int(config.SR / (bpm / 60))
         offset = find_offset(
-            onsets * config.HOP_LENGTH, bpm, config.SR, method="Powell"
+            onsets * self.hop_length, bpm, config.SR, method="Powell"
         )
         if abs(offset) > 512:
             print(f"RECA: Predicted {offset / config.SR} miss!")

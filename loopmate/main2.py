@@ -31,7 +31,7 @@ def decode_midi_status(status):
 class MidiQueue:
     def __init__(self, loop: Loop):
         self.loop = loop
-        self.port = rtmidi.MidiIn().open_port(config.midi_port)
+        self.port = rtmidi.MidiIn().open_port(config.MIDI_PORT)
         self.port.set_callback(self.receive)
         self.in_rec = False
 
@@ -46,8 +46,8 @@ class MidiQueue:
         if command != 9:
             return
 
-        if config.midi_channel > 0:
-            if channel != config.midi_channel:
+        if config.MIDI_CHANNEL > 0:
+            if channel != config.MIDI_CHANNEL:
                 return
         self.command(note)
 
@@ -77,7 +77,7 @@ class MidiQueue:
                     bpm_quant = False
                 self.in_rec = not self.in_rec
                 if self.in_rec:
-                    self.loop.start_recording(config.record_channels)
+                    self.loop.start_recording(config.RECORD_CHANNELS)
                 else:
                     self.loop.stop_recording()
             case 57:
@@ -85,7 +85,7 @@ class MidiQueue:
                 # record (recording stop)
                 n = self.loop.anchor.loop_length
                 when = (
-                    n - round(self.loop.callback_time.output_delay * config.sr)
+                    n - round(self.loop.callback_time.output_delay * config.SR)
                 ) % self.loop.anchor.loop_length
                 self.loop.actions.actions.append(
                     RecordTrigger(when, n, spawn=RecordTrigger(when, n))
@@ -96,7 +96,7 @@ class MidiQueue:
                 print(self.loop.actions.actions)
             case 30:
                 n = self.loop.anchor.loop_length
-                when = n - config.blend_samples - 256
+                when = n - config.BLEND_SAMPLES - 256
                 self.loop.actions.actions.append(
                     MuteTrigger(when, n, loop=False)
                 )
@@ -112,7 +112,7 @@ class MidiQueue:
                 self.loop.audios[-1].reset_audio()
             case 53:
                 self.loop.audios[-1].audio = delay(
-                    self.loop.audios[-1].audio, config.sr, reset=False
+                    self.loop.audios[-1].audio, config.SR, reset=False
                 )
             case 41:
                 self.loop.rec.data.quit = True
@@ -162,7 +162,7 @@ def analysis_target():
     target function for the multiprocessing.Process which will run ongoing
     analysis on the audio which is constantly recorded.
     """
-    with lr.RecAnalysis(config.rec_n, config.channels) as rec:
+    with lr.RecAnalysis(config.REC_N, config.CHANNELS) as rec:
         rec.run()
     print("done analysis")
 
@@ -171,13 +171,13 @@ def ondemand_target():
     """target function for the multiprocessing.Process which will run
     analysis like onset quantization or BPM estimation on demand.
     """
-    with lr.AnalysisOnDemand(config.rec_n, config.channels) as rec:
+    with lr.AnalysisOnDemand(config.REC_N, config.CHANNELS) as rec:
         rec.run()
     print("done ondemand")
 
 
 if __name__ == "__main__":
-    with lr.RecAudio(config.rec_n, config.channels) as rec:
+    with lr.RecAudio(config.REC_N, config.CHANNELS) as rec:
         ap = Process(target=analysis_target)
         ap2 = Process(target=ondemand_target)
         ap.start()
@@ -191,7 +191,7 @@ if __name__ == "__main__":
         clave = np.concatenate(
             (
                 1 * clave[:, None],
-                np.zeros((config.sr - len(clave), 1), dtype=np.float32),
+                np.zeros((config.SR - len(clave), 1), dtype=np.float32),
             )
         )
         loop = Loop(rec, Audio(clave))
@@ -205,7 +205,7 @@ if __name__ == "__main__":
         delay = pedalboard.Delay(0.8, 0.1, 0.3)
         limiter = pedalboard.Limiter()
         loop.actions.append(
-            Effect(0, 10000000, lambda x: limiter(x, config.sr))
+            Effect(0, 10000000, lambda x: limiter(x, config.SR))
         )
 
         midi = MidiQueue(loop)

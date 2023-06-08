@@ -52,7 +52,7 @@ def make_recording_struct(
     channels,
     int_type=ctypes.c_int64,
 ):
-    N_stft = int(np.ceil(N / config.hop_length))
+    N_stft = int(np.ceil(N / config.HOP_LENGTH))
 
     class CRecording(ctypes.Structure):
         _fields_ = [
@@ -81,14 +81,14 @@ def make_recording_struct(
             ("stft_counter", int_type),
             (
                 "stft",
-                ctypes.c_float * (2 * (1 + int(config.n_fft / 2)) * N_stft),
+                ctypes.c_float * (2 * (1 + int(config.N_FFT / 2)) * N_stft),
             ),
             ("onset_env_counter", int_type),
             ("onset_env", ctypes.c_float * N_stft),
             ("mov_max", ctypes.c_float * N_stft),
             ("mov_avg", ctypes.c_float * N_stft),
             ("tg_counter", int_type),
-            ("tg", ctypes.c_float * config.tg_win_len * N_stft),
+            ("tg", ctypes.c_float * config.TG_WIN_LEN * N_stft),
             ("analysis_action", int_type),
             ("quit", ctypes.c_bool),
         ]
@@ -133,7 +133,7 @@ class RecAnalysis:
         # TODO: take N from config or also kwarg other config items
         self.poll_time = poll_time
 
-        self.N_stft = int(np.ceil(N / config.hop_length))
+        self.N_stft = int(np.ceil(N / config.HOP_LENGTH))
         cstruct = make_recording_struct(N, channels)
 
         self.shm = SharedMemory(
@@ -158,7 +158,7 @@ class RecAnalysis:
         tg_counter = SharedInt(self.shm, cstruct.tg_counter.offset)
         self.stft = CircularArray(
             np.ndarray(
-                (1 + int(config.n_fft / 2), self.N_stft),
+                (1 + int(config.N_FFT / 2), self.N_stft),
                 dtype=np.complex64,
                 buffer=self.shm.buf[cstruct.stft.offset :],
             ),
@@ -175,7 +175,7 @@ class RecAnalysis:
         )
         self.tg = CircularArray(
             np.ndarray(
-                (config.tg_win_len, self.N_stft),
+                (config.TG_WIN_LEN, self.N_stft),
                 dtype=np.float32,
                 buffer=self.shm.buf[cstruct.tg.offset :],
             ),
@@ -193,15 +193,15 @@ class RecAnalysis:
             dtype=np.float32,
             buffer=self.shm.buf[cstruct.mov_avg.offset :],
         )
-        self.window = sig.windows.hann(config.n_fft).astype(np.float32)
-        self.tg_window = sig.windows.hann(config.tg_win_len).astype(np.float32)
+        self.window = sig.windows.hann(config.N_FFT).astype(np.float32)
+        self.tg_window = sig.windows.hann(config.TG_WIN_LEN).astype(np.float32)
         self.onset_env_minmax = EMA_MinMaxTracker(
             min0=0, minmin=0, max0=1, alpha=0.001
         )
         self.logspec_minmax = EMA_MinMaxTracker(
             max0=10, minmax=0, alpha=0.0005
         )
-        self.peaks = PeakTracker(self.N_stft, config.onset_det_offset)
+        self.peaks = PeakTracker(self.N_stft, config.ONSET_DET_OFFSET)
 
     def run(self):
         while not self.data.quit:
@@ -217,7 +217,7 @@ class RecAnalysis:
         self.fft()
 
     def fft(self):
-        stft = np.fft.rfft(self.window * self.audio[-config.n_fft :].mean(-1))
+        stft = np.fft.rfft(self.window * self.audio[-config.N_FFT :].mean(-1))
         self.stft.write(stft[:, None])
         self.onset_strength()
         self.tempogram()
@@ -240,25 +240,25 @@ class RecAnalysis:
             np.array([self.onset_env_minmax.normalize_sample(onset_env)])
         )
         # Decrement offsets by one as we already incremented onset_env
-        mov_max_cur = self.onset_env.index_offset(-config.max_offset - 1)
+        mov_max_cur = self.onset_env.index_offset(-config.MAX_OFFSET - 1)
         self.mov_max[mov_max_cur] = np.max(
-            self.onset_env[-config.max_length :]
+            self.onset_env[-config.MAX_LENGTH :]
         )
-        mov_avg_cur = self.onset_env.index_offset(-config.avg_offset - 1)
+        mov_avg_cur = self.onset_env.index_offset(-config.AVG_OFFSET - 1)
         self.mov_avg[mov_avg_cur] = np.mean(
-            self.onset_env[-config.avg_length :]
+            self.onset_env[-config.AVG_LENGTH :]
         )
 
     def tempogram(self):
         tg = np.fft.irfft(
             magsquared(
                 np.fft.rfft(
-                    self.tg_window * self.onset_env[-config.tg_win_len :],
-                    n=config.tg_pad,
+                    self.tg_window * self.onset_env[-config.TG_WIN_LEN :],
+                    n=config.TG_PAD,
                 )
             ),
-            n=config.tg_pad,
-        )[: config.tg_win_len, None]
+            n=config.TG_PAD,
+        )[: config.TG_WIN_LEN, None]
         # This one increments the shared counter
         self.tg.write(tg / (tg.max() + 1e-10))
 
@@ -284,7 +284,7 @@ class AnalysisOnDemand(RecAnalysis):
     def __init__(self, N, channels, name="recording", poll_time=0.0001):
         super().__init__(N, channels, name, poll_time)
         self.tf = tempo_frequencies(
-            config.tg_win_len, config.hop_length, sr=config.sr
+            config.TG_WIN_LEN, config.HOP_LENGTH, sr=config.SR
         )
         self.bpm_logprior = (
             -0.5 * ((np.log2(self.tf) - np.log2(100)) / 1.0) ** 2
@@ -307,14 +307,14 @@ class AnalysisOnDemand(RecAnalysis):
         self.data.analysis_action = 0
 
     def detect_onsets(self, start):
-        o = -config.onset_det_offset
+        o = -config.ONSET_DET_OFFSET
         wc = self.onset_env.write_counter
         onset_env = self.onset_env[start:o]
         mov_max = query_circular(self.mov_max, slice(start, o), wc)
         mov_avg = query_circular(self.mov_avg, slice(start, o), wc)
         detections = onset_env * (onset_env == mov_max)
         # Then mask out all entries less than the thresholded average
-        detections = detections * (detections >= (mov_avg + config.delta))
+        detections = detections * (detections >= (mov_avg + config.DELTA))
 
         # Initialize peaks array, to be filled greedily
         peaks = []
@@ -323,7 +323,7 @@ class AnalysisOnDemand(RecAnalysis):
         last_onset = -np.inf
         for i in np.nonzero(detections)[0]:
             # Only report an onset if the "wait" samples was reported
-            if i > last_onset + config.wait:
+            if i > last_onset + config.WAIT:
                 peaks.append(i)
                 # Save last reported onset
                 last_onset = i
@@ -335,7 +335,7 @@ class AnalysisOnDemand(RecAnalysis):
         onsets,
         offset,
         onset_envelope,
-        lenience=round(config.sr * 0.1),
+        lenience=round(config.SR * 0.1),
         strength_weight=0.5,
         window_size=5,
     ) -> (int, int):
@@ -368,9 +368,8 @@ class AnalysisOnDemand(RecAnalysis):
 
         # Find the strengths of the onsets in the onset envelope
         strengths = []
-        offset = samples_to_frames(offset, config.hop_length)
-        print(f"{offset=}, {onset_envelope.min()=}, {onset_envelope.max()=}")
-        for onset in samples_to_frames(onsets, config.hop_length):
+        offset = samples_to_frames(offset, config.HOP_LENGTH)
+        for onset in samples_to_frames(onsets, config.HOP_LENGTH):
             start = max(0, offset + onset - window_size)
             end = min(len(onset_envelope), offset + onset + window_size)
             strengths.append(np.max(onset_envelope[start:end]))
@@ -396,12 +395,12 @@ class AnalysisOnDemand(RecAnalysis):
 
         return move, move
 
-    def quantize_start(self, lenience=config.sr * 0.1):
+    def quantize_start(self, lenience=config.SR * 0.1):
         # Sleep for a bit to make sure we account for bad timing, as well as
         # the delay from onset detection
-        det_delay_s = config.onset_det_offset * config.hop_length / config.sr
+        det_delay_s = config.ONSET_DET_OFFSET * config.HOP_LENGTH / config.SR
         wait_for_ms = 250
-        lookaround_samples = int(wait_for_ms / 1000 * config.sr)
+        lookaround_samples = int(wait_for_ms / 1000 * config.SR)
         # Wait for wait_for_ms as well as the onset detection delay
         sd.sleep(wait_for_ms + int(det_delay_s * 1000))
         # We want to check recording_start, so the reference is the frames
@@ -410,7 +409,7 @@ class AnalysisOnDemand(RecAnalysis):
         # We want to get this many samples before the reference as well
 
         start = ref + lookaround_samples
-        start_frames = -samples_to_frames(start, config.hop_length)
+        start_frames = -samples_to_frames(start, config.HOP_LENGTH)
         # In practice, the algorithm finds the onset somewhat later, so
         # we decrement by one to be closer to the actual onset
         onsets, onset_envelope = self.detect_onsets(start_frames)
@@ -419,8 +418,8 @@ class AnalysisOnDemand(RecAnalysis):
         # quantize to. Therefore, let's weight by distance from press and size
         # of the peak. subtract one frame after checking height
         onsets = frames_to_samples(
-            onsets - samples_to_frames(lookaround_samples, config.hop_length),
-            config.hop_length,
+            onsets - samples_to_frames(lookaround_samples, config.HOP_LENGTH),
+            config.HOP_LENGTH,
         )
         print(f"RECA: onsets (start): {onsets}")
         _, move = self.quantize_onsets(
@@ -441,9 +440,9 @@ class AnalysisOnDemand(RecAnalysis):
               from start and the estimated BPM
         """
         ref_start = self.audio.elements_since(self.data.recording_start)
-        start_frame = -samples_to_frames(ref_start, config.hop_length)
+        start_frame = -samples_to_frames(ref_start, config.HOP_LENGTH)
         n = self.data.recording_end - self.data.recording_start
-        n_frames = samples_to_frames(n, config.hop_length)
+        n_frames = samples_to_frames(n, config.HOP_LENGTH)
         end_frame = start_frame + n_frames
         if end_frame > 0:
             end_frame = 0
@@ -451,15 +450,15 @@ class AnalysisOnDemand(RecAnalysis):
         tg = self.tg[start_frame:end_frame]
         onsets, onset_envelope = self.detect_onsets(start_frame)
         bpm = self.tempo(tg)[0]
-        beat_len = int(config.sr / (bpm / 60))
+        beat_len = int(config.SR / (bpm / 60))
         offset = find_offset(
-            onsets * config.hop_length, bpm, config.sr, method="Powell"
+            onsets * config.HOP_LENGTH, bpm, config.SR, method="Powell"
         )
         if abs(offset) > 512:
-            print(f"RECA: Predicted {offset / config.sr} miss!")
+            print(f"RECA: Predicted {offset / config.SR} miss!")
             # If within 100ms of a subdivision we assume offbeat start:
             # TODO: missing one case here based on direction of difference
-            if beat_len / 2 - abs(offset) < 0.1 * config.sr:
+            if beat_len / 2 - abs(offset) < 0.1 * config.SR:
                 print(f"RECA: Offset changed from {offset} to {beat_len / 2}")
                 offset = offset - np.sign(offset) * beat_len / 2
 
@@ -508,15 +507,15 @@ if __name__ == "__main__":
     N = len(wav)
 
     with RecAudio(N, 1) as rec:
-        N_stft = int(np.ceil(N / config.hop_length))
+        N_stft = int(np.ceil(N / config.HOP_LENGTH))
 
         tg = np.ndarray(
-            (config.tg_win_len, N_stft),
+            (config.TG_WIN_LEN, N_stft),
             dtype=np.float32,
             buffer=rec.shm.buf[rec.cstruct.tg.offset :],
         )
         stft = np.ndarray(
-            (1 + int(config.n_fft / 2), N_stft),
+            (1 + int(config.N_FFT / 2), N_stft),
             dtype=np.complex64,
             buffer=rec.shm.buf[rec.cstruct.stft.offset :],
         )
@@ -525,11 +524,11 @@ if __name__ == "__main__":
         ap1.start()
         ap2.start()
         time.sleep(0.1)
-        for i in range(0, len(wav) // 1, config.blocksize):
+        for i in range(0, len(wav) // 1, config.BLOCKSIZE):
             # TODO: possibly increment all counters in main thread, or just use
             # the audio counter, to make sure processes are in sync - poll time
             # causes delays currently, therefore removed
-            rec.audio.write(wav[i : i + config.blocksize, None])
+            rec.audio.write(wav[i : i + config.BLOCKSIZE, None])
             # print("writing done")
             if i == 0:
                 time.sleep(0.01)
@@ -539,11 +538,11 @@ if __name__ == "__main__":
         rec.data.analysis_action = 1
         rec.data.recording_start = int(rec.data.counter)
 
-        for i in range(0, len(wav) // 1, config.blocksize):
+        for i in range(0, len(wav) // 1, config.BLOCKSIZE):
             # TODO: possibly increment all counters in main thread, or just use
             # the audio counter, to make sure processes are in sync - poll time
             # causes delays currently, therefore removed
-            rec.audio.write(wav[i : i + config.blocksize, None])
+            rec.audio.write(wav[i : i + config.BLOCKSIZE, None])
             # print("writing done")
             if i == 0:
                 # time.sleep(0.01)

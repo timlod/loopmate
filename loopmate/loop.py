@@ -14,8 +14,8 @@ from loopmate.actions import Actions, Sample, Start, Stop
 from loopmate.circular_array import CircularArray
 from loopmate.utils import CLAVE, StreamTime, channels_to_int
 
-RAMP = np.linspace(1, 0, config.blend_samples, dtype=np.float32)[:, None]
-POP_WINDOW = sig.windows.hann(config.blend_samples)[:, None]
+RAMP = np.linspace(1, 0, config.BLEND_SAMPLES, dtype=np.float32)[:, None]
+POP_WINDOW = sig.windows.hann(config.BLEND_SAMPLES)[:, None]
 
 # TODO: BPM sync & metronome anchor
 
@@ -122,12 +122,12 @@ class Loop:
         self.actions = Actions()
 
         self.stream = sd.Stream(
-            samplerate=config.sr,
-            device=config.device,
-            channels=config.channels,
+            samplerate=config.SR,
+            device=config.DEVICE,
+            channels=config.CHANNELS,
             callback=self._get_callback(),
-            latency=config.latency,
-            blocksize=config.blocksize,
+            latency=config.LATENCY,
+            blocksize=config.BLOCKSIZE,
         )
         self.callback_time = None
         self.last_out = deque(maxlen=20)
@@ -226,15 +226,15 @@ class Loop:
         beginning of the current audio block/frame.
         """
         t = self.stream.time
-        samples_since = round(self.callback_time.timediff(t) * config.sr)
+        samples_since = round(self.callback_time.timediff(t) * config.SR)
         return (
             self.rec_audio.counter
             + samples_since
-            + round(self.callback_time.input_delay * config.sr)
+            + round(self.callback_time.input_delay * config.SR)
         ), samples_since
 
     def start_recording(
-        self, lenience: int = config.sr * 0.2, channels: list[int] = [0, 1]
+        self, lenience: int = config.SR * 0.2, channels: list[int] = [0, 1]
     ):
         """Start recording of a new loop.  Works with both anchor and
         subsequent loops.
@@ -252,7 +252,7 @@ class Loop:
             start_sample = (
                 self.callback_time.index
                 + samples_since
-                + round(self.callback_time.output_delay * config.sr)
+                + round(self.callback_time.output_delay * config.SR)
             )
             if start_sample > self.anchor.loop_length:
                 start_sample -= self.anchor.loop_length
@@ -270,7 +270,7 @@ class Loop:
         self.rec.data.result_type = 1
         print(f"Load: {100 * self.stream.cpu_load:.2f}%")
 
-    def stop_recording(self, lenience=config.sr * 0.2):
+    def stop_recording(self, lenience=config.SR * 0.2):
         """Stop an ongoing recording and adds the recorded audio to the loop.
 
         :param lenience: lenience in samples used for the quantization of
@@ -307,7 +307,7 @@ class Loop:
         n_loop_iter = int(2 ** np.ceil(np.log2(n / loop_length)))
 
         n += self.start_sample - round(
-            self.callback_time.output_delay * config.sr
+            self.callback_time.output_delay * config.SR
         )
         if n > n_loop_iter * loop_length:
             n = n % loop_length
@@ -316,7 +316,7 @@ class Loop:
 
         while self.rec.data.recording_end > self.rec_audio.counter:
             # Maybe make 0
-            sd.sleep(int(config.blocksize / config.sr * 1000))
+            sd.sleep(int(config.BLOCKSIZE / config.SR * 1000))
 
         start_back = -self.rec_audio.elements_since(
             self.rec.data.recording_start
@@ -324,7 +324,7 @@ class Loop:
         rec = self.rec_audio[start_back:][:N]
         self.antipop(
             rec,
-            self.rec_audio[start_back - config.blend_samples : start_back],
+            self.rec_audio[start_back - config.BLEND_SAMPLES : start_back],
             end_sample,
         )
         audio.audio[self.start_sample : self.start_sample + N] = rec
@@ -351,8 +351,8 @@ class Loop:
         """
         # If we have a full loop, blend from pre-recording, else 0 blend
         if (end_sample % self.anchor.loop_length) == 0:
-            audio[-config.blend_samples :] = (
-                RAMP * audio[-config.blend_samples :] + (1 - RAMP) * xfade_end
+            audio[-config.BLEND_SAMPLES :] = (
+                RAMP * audio[-config.BLEND_SAMPLES :] + (1 - RAMP) * xfade_end
             )
         else:
             n_pw = len(POP_WINDOW) // 2
@@ -396,7 +396,7 @@ class Loop:
         ll = 0 if self.anchor is None else self.anchor.loop_length
         self.actions.append(Sample(CLAVE, ll, 1.5))
         at_sample = self.rec_audio.counter
-        indelay_samples = round(self.callback_time.input_delay * config.sr)
+        indelay_samples = round(self.callback_time.input_delay * config.SR)
         wait_for = (
             200
             - round(self.callback_time.output_delay * 1000)
@@ -423,12 +423,12 @@ class ExtraOutput:
         self.loop = loop
         self.callback_time: StreamTime = None
         self.stream = sd.OutputStream(
-            samplerate=config.sr,
-            device=config.headphone_device,
-            channels=config.channels,
+            samplerate=config.SR,
+            device=config.HEADPHONE_DEVICE,
+            channels=config.CHANNELS,
             callback=self._get_callback(),
-            latency=config.latency * 0.1,
-            blocksize=config.blocksize,
+            latency=config.LATENCY * 0.1,
+            blocksize=config.BLOCKSIZE,
         )
         self.start = False
         self.stream.start()
@@ -437,7 +437,7 @@ class ExtraOutput:
             self.loop.callback_time.current - self.callback_time.current
         )
         ad = loop.measure_air_delay()
-        self.align(ad / config.sr)
+        self.align(ad / config.SR)
 
     def _get_callback(self):
         """
@@ -456,7 +456,7 @@ class ExtraOutput:
 
         return callback
 
-    def align(self, air_delay=config.air_delay):
+    def align(self, air_delay=config.AIR_DELAY):
         """Align this output to the main output.  Discards queued output
         buffers until both outputs are reasonably close to each other.
 
@@ -489,7 +489,7 @@ class ExtraOutput:
 
 
 def quantize(
-    sample, loop_length, start=True, lenience=config.sr * 0.2
+    sample, loop_length, start=True, lenience=config.SR * 0.2
 ) -> (int, int):
     """Quantize start or end recording marker to the loop boundary if
     within some interval from them.  Also returns difference between

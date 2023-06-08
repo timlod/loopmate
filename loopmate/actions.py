@@ -37,7 +37,7 @@ import sounddevice as sd
 
 from loopmate import config
 
-RAMP = np.linspace(1, 0, config.blend_samples, dtype=np.float32)[:, None]
+RAMP = np.linspace(1, 0, config.BLEND_SAMPLES, dtype=np.float32)[:, None]
 
 
 @dataclass
@@ -152,7 +152,7 @@ class CrossFade:
         Call using CrossFade()(a, b).
 
         :param n: length of the blending (in samples).  By default use RAMP,
-                  the length of which is set using config.blend_length
+                  the length of which is set using config.BLEND_LENGTH
         :param left_right: if False, b blends into a instead of a -> b
         """
         if n is None:

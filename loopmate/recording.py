@@ -24,12 +24,31 @@ from loopmate.utils import (
 )
 
 
-def closest_distance(onsets, grid, beat_len):
+def closest_distance(onsets: np.ndarray, grid: np.ndarray) -> float:
+    """For each onset/grid pair, compute the distances to the closest two grid
+    positions for each onset. Return the mean across all those distances.
+
+    :param onsets: array containing integer indexes corresponding to onsets
+    :param grid: array containing beat grid
+    """
     dm = distance_matrix(onsets[:, None], grid[:, None])
     return np.mean(np.sort(dm, axis=0)[:2, :].round())
 
 
-def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
+def find_offset(
+    onsets: np.ndarray, bpm: float, sr: int = 48000, x0: float = 0.0, **kwargs
+) -> int:
+    """Given a set of onsets and a BPM, compute an offset which aligns the
+    onsets within a grid corresponding to the BPM.
+
+    For example, onsets which are on the offbeat, would return an offset
+    corresponding to half a beat given the sample rate.
+
+    :param onsets: array containing integer indexes corresponding to onsets
+    :param bpm: estimated BPM of the onsets
+    :param sr: sample rate
+    :param x0: initial offset guess
+    """
     if len(onsets) == 0:
         return 0
     beat_len = sr // (bpm / 60)
@@ -38,7 +57,7 @@ def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
     grid = np.arange(0, N * beat_len, beat_len)
 
     def closure(offset):
-        d = closest_distance(onsets + offset, grid, beat_len)
+        d = closest_distance(onsets + offset, grid)
         return d
 
     res = minimize(closure, x0=x0, **kwargs)

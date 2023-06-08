@@ -45,8 +45,6 @@ def find_offset(onsets, bpm, sr=48000, x0=0, **kwargs):
     return int(res.x)
 
 
-
-
 def make_recording_struct(
     n=config.REC_N,
     channels=config.CHANNELS,

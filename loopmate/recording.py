@@ -23,6 +23,9 @@ from loopmate.utils import (
     tempo_frequencies,
 )
 
+# TODO: use of config constants not yet consistent - sometimes the kwargs
+# referring to those are used, other times not.
+
 
 def closest_distance(onsets: np.ndarray, grid: np.ndarray) -> float:
     """For each onset/grid pair, compute the distances to the closest two grid
@@ -123,6 +126,12 @@ def make_recording_struct(
 
 
 class RecAudio:
+    """
+    Class used to share recorded audio and auxiliary arrays with other
+    processes.  Creates shared memory object.  Should be called first in the
+    main thread.
+    """
+
     def __init__(
         self, n=config.REC_N, channels=config.CHANNELS, name="recording"
     ):
@@ -267,12 +276,19 @@ class RecAnalysis:
         self.fft()
 
     def fft(self):
+        """Computes a single frame of the STFT of the most recent audio, as
+        well as its onset strength and tempogram frame.
+        """
         stft = np.fft.rfft(self.window * self.audio[-self.n_fft :].mean(-1))
         self.stft.write(stft[:, None])
         self.onset_strength()
         self.tempogram()
 
     def onset_strength(self):
+        """
+        Compute onset envelope and auxiliary (max and average) arrays of most
+        recent STFT frames.
+        """
         mag = magsquared(self.stft[-1])
         magm1 = magsquared(self.stft[-2])
         # Convert to DB
@@ -300,6 +316,9 @@ class RecAnalysis:
         )
 
     def tempogram(self):
+        """
+        Compute tempogram given the most recent onset_envelope frames.
+        """
         tg = np.fft.irfft(
             magsquared(
                 np.fft.rfft(
@@ -333,6 +352,11 @@ class RecAnalysis:
 
 
 class AnalysisOnDemand(RecAnalysis):
+    """
+    Class to compute onset detection and quantization on demand.  These actions
+    can be requested/signalled in another process using data.analysis_action.
+    """
+
     def __init__(
         self,
         n=config.REC_N,
@@ -367,7 +391,13 @@ class AnalysisOnDemand(RecAnalysis):
 
         self.data.analysis_action = 0
 
-    def detect_onsets(self, start):
+    def detect_onsets(self, start: int):
+        """Detect onsets since requested start frame based on shared memory
+        arrays.
+
+        :param start: start frame indexing onset envelope.  Should be a
+            negative index.
+        """
         o = -config.ONSET_DET_OFFSET
         wc = self.onset_env.write_counter
         onset_env = self.onset_env[start:o]
@@ -531,7 +561,13 @@ class AnalysisOnDemand(RecAnalysis):
         self.data.recording_end = end
         self.data.result_type = 8
 
-    def tempo(self, tg, agg=np.mean):
+    def tempo(self, tg, agg=np.mean) -> float:
+        """Compute BPM estimate.
+
+        :param tg: tempogram slice to estimate the BPM for
+        :param agg: aggregation method - if None, return estimate for each
+            frame of the tempogram.
+        """
         # From librosa.feature.rhythm
         best_period = np.argmax(
             np.log1p(1e6 * tg) + self.bpm_logprior, axis=-2

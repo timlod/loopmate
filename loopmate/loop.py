@@ -292,7 +292,7 @@ class Loop:
                 return
         else:
             # Initiate quantize_end in AnalysisOnDemand
-            self.rec.data.analysis_action = 3
+            self.rec.data.analysis_action = 2
             while self.rec.data.result_type < 8:
                 # Waiting for end quantization to finish
                 sd.sleep(0)

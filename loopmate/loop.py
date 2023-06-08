@@ -22,8 +22,11 @@ POP_WINDOW = sig.windows.hann(config.BLEND_SAMPLES)[:, None]
 
 @dataclass
 class Audio:
-    # store info about different audio files to loop, perhaps with actions
-    # around them as well, i.e. meter, bpm, etc.
+    """
+    Loop audio of which samples can be requested in a wraparound (looped)
+    fashion.
+    """
+
     audio: np.ndarray = field(repr=False)
     loop_length: int | None = None
     pos_start: int = 0
@@ -66,7 +69,7 @@ class Audio:
 
         self.actions = Actions(self)
 
-    def get_n(self, samples: int):
+    def get_n(self, samples: int) -> np.ndarray:
         """Return the next batch of audio in the loop
 
         :param samples: number of audio samples to return
@@ -91,9 +94,15 @@ class Audio:
         return out
 
     def reset_audio(self):
+        """Reset audio to its original state.  Useful if effects were applied
+        which should be removed.
+        """
         self.audio = self._audio.copy()
 
     def make_anchor(self):
+        """Multiply loop length by n_loop_iter to change to Audio which can be
+        used as a loop anchor.
+        """
         self.loop_length = self.loop_length * self.n_loop_iter
         self.n_loop_iter = 1
 
@@ -132,7 +141,11 @@ class Loop:
         self.callback_time = None
         self.last_out = deque(maxlen=20)
 
-    def add_track(self, audio):
+    def add_track(self, audio: Audio | np.ndarray):
+        """Add audio track to loop.
+
+        :param audio: Audio or array containing new audio to add to loop.
+        """
         if len(self.audios) == 0:
             if not isinstance(audio, Audio):
                 audio = Audio(audio)
@@ -331,7 +344,9 @@ class Loop:
         self.rec.data.result_type = 0
         print(f"Added {audio}!")
 
-    def antipop(self, audio, xfade_end, end_sample):
+    def antipop(
+        self, audio: np.ndarray, xfade_end: np.ndarray, end_sample: int
+    ):
         """Removes audible pop by blending loop boundaries in two possible
         ways:
 
@@ -343,7 +358,7 @@ class Loop:
             2. If the audio covers just part of the loop length, blends the
                beginning/end of the audio with zeros.
 
-        :param audio: audio to smooth the edges of
+        :param audio: audio to smooth the edges of, will be modified in-place
         :param xfade_end: blend_samples number of samples of recording from
             before audio
         :param end_sample: location on the scale of loop_length of the last
@@ -359,7 +374,7 @@ class Loop:
             audio[:n_pw] *= POP_WINDOW[:n_pw]
             audio[-n_pw:] *= POP_WINDOW[-n_pw:]
 
-    def backcapture(self, n):
+    def backcapture(self, n: int):
         """Immediately captures audio the of the last n loops.  If close to the
         end of one loop, it will wait a little and take the latest loop.
 
@@ -489,7 +504,7 @@ class ExtraOutput:
 
 
 def quantize(
-    sample, loop_length, start=True, lenience=config.SR * 0.2
+    sample: int, loop_length: int, start: bool = True, lenience=config.SR * 0.2
 ) -> (int, int):
     """Quantize start or end recording marker to the loop boundary if
     within some interval from them.  Also returns difference between
@@ -497,7 +512,7 @@ def quantize(
 
     :param sample: start or end recording marker
     :param start: True for start, or False for end
-    :param lenience: quantize if within this many seconds from the loop
+    :param lenience: quantize if within this many samples from the loop
         boundary
 
         For example, for sr=48000, the lenience (indata_at 200ms) is 9600

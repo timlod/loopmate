@@ -176,7 +176,7 @@ class Loop:
 
             # These times/frame refer to the block that is processed in this
             # callback
-            self.callback_time = StreamTime(time, current_index, frames)
+            self.callback_time = StreamTime(time, current_index)
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
@@ -448,7 +448,7 @@ class ExtraOutput:
             if status:
                 print(status)
 
-            self.callback_time = StreamTime(time, 0, frames)
+            self.callback_time = StreamTime(time, 0)
             if not self.start:
                 outdata[:] = 0.0
             else:

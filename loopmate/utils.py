@@ -12,7 +12,7 @@ CLAVE, MSR = sf.read("../data/clave.wav", dtype=np.float32)
 CLAVE = CLAVE[:, None]
 
 
-def frames_to_samples(frames: np.ndarray, hop_length: int = 256) -> np.ndarray:
+def frames_to_samples(frames: np.ndarray, hop_length: int) -> np.ndarray:
     """Convert frame index to sample index.
 
     :param frames: array containing frame indices.
@@ -21,9 +21,12 @@ def frames_to_samples(frames: np.ndarray, hop_length: int = 256) -> np.ndarray:
     return frames * hop_length
 
 
-def samples_to_frames(
-    samples: np.ndarray, hop_length: int = 256
-) -> np.ndarray:
+def samples_to_frames(samples: np.ndarray, hop_length: int) -> np.ndarray:
+    """Convert sample index to frame index.
+
+    :param samples: array containing sample indices
+    :param hop_length: hop_length of the STFT
+    """
     return samples // hop_length
 
 
@@ -66,7 +69,7 @@ def int_to_channels(value: int) -> list[int]:
     return channels
 
 
-def resample(x: np.ndarray, sr_source: int, sr_target: int):
+def resample(x: np.ndarray, sr_source: int, sr_target: int) -> np.ndarray:
     """Resample signal to target samplerate
 
     :param x: audio file to resample of shape (n_samples, channels)
@@ -78,18 +81,28 @@ def resample(x: np.ndarray, sr_source: int, sr_target: int):
     return sig.resample(x, n_target)
 
 
-def tempo_frequencies(n_bins: int, hop_length: int = 256, sr: int = 48000):
-    # From librosa.convert
+def tempo_frequencies(n_bins: int, hop_length: int, sr: int) -> np.ndarray:
+    """Compute the frequencies (in beats per minute) corresponding to an onset
+    auto-correlation or tempogram matrix.
+
+    Taken from
+    https://librosa.org/doc/latest/_modules/librosa/core/convert.html#tempo_frequencies
+
+    :param n_bins: number of lag bins
+    :param hop_length: hop_length of the STFT
+    :param sr: sample rate
+    """
+
     bin_frequencies = np.zeros(int(n_bins), dtype=np.float64)
 
     bin_frequencies[0] = np.inf
     bin_frequencies[1:] = 60.0 * sr / (hop_length * np.arange(1.0, n_bins))
-
     return bin_frequencies
 
 
 @dataclass
 class Metre:
+    # WIP
     bpm: float
     beats: int
     divisions: int
@@ -111,10 +124,13 @@ class Metre:
 
 
 class StreamTime:
-    # TODO: may precompute delays to save some precious cycles
-    def __init__(self, time, index, n_frames):
+    """
+    Encapsulates sounddevice timestamps and sample index relative to containing
+    loop.
+    """
+
+    def __init__(self, time, index):
         self.index = index
-        self.n_frames = n_frames
         if isinstance(time, list):
             self.current = time[0]
             self.input = time[1]
@@ -147,6 +163,13 @@ class StreamTime:
 
 
 class EMA_MinMaxTracker:
+    """A class used to track the Exponential Moving Average (EMA) of the
+    minimum and maximum of a series of samples.
+
+    Used to have a good estimate of min/max used when normalizing samples to
+    (0, 1).
+    """
+
     def __init__(
         self,
         alpha=0.0001,
@@ -164,9 +187,13 @@ class EMA_MinMaxTracker:
         self.minmin = np.float32(minmin)
         self.minmax = np.float32(minmax)
 
-    def add_sample(self, sample):
+    def add_sample(self, sample: np.float32):
+        """
+        Updates min/max values given the sample.
+
+        :param sample: new sample
+        """
         # Update min_val and max_val using exponential moving average
-        # sample = abs(sample)
         if sample < self.minmin:
             self.min_val = self.minmin
         elif sample < self.min_val:
@@ -181,28 +208,43 @@ class EMA_MinMaxTracker:
         else:
             self.max_val = self.max_val * self.ialpha + sample * self.alpha
 
-    def normalize_sample(self, sample):
+    def normalize_sample(self, sample: np.float32):
+        """Normalize a sample to fit in (0, 1), based on the tracked min/max
+        values.
+
+        :param sample:
+        """
         sample -= self.min_val
         return sample / (self.max_val + self.eps)
 
 
 class PeakTracker:
-    def __init__(self, N, offset=0):
+    """Keeps track of recently detected peaks, discarding old ones.
+
+    Stores absolute indexes wrt.  the origin, and subtracts the current counter
+    when requesting peaks, leading to negative indexes (with 0 being the most
+    recent)
+    """
+
+    def __init__(self, N: int, offset: int = 0):
         self.N = N
         self.absolute = deque()
         self.current_step = 0
         self.offset = offset
 
     def add_element(self):
+        """Add a detected peak at the current step."""
         self.absolute.append(self.current_step - self.offset)
 
     def step(self):
+        """Make a step. Will remove old entries."""
         self.current_step += 1
         while self.absolute and self.absolute[0] - self.N > self.current_step:
             self.absolute.popleft()
 
     @property
-    def last(self):
+    def last(self) -> int:
+        """Return latest detected peak, with negative index."""
         if self.absolute:
             return self.absolute[-1] - self.current_step
         else:
@@ -210,31 +252,16 @@ class PeakTracker:
             return -100000
 
     @property
-    def peaks(self):
+    def peaks(self) -> np.ndarray:
+        """
+        Return all detected peaks relative to the current step (negative index).
+        """
         return np.array(self.absolute) - self.current_step
 
 
-def magsquared(x):
+def magsquared(x: np.complex64):
+    """Returns squared complex magnitude."""
     return x.real**2 + x.imag**2
-
-
-def tempo(
-    tg: np.ndarray,
-    hop_length: int = 256,
-    win_length: int = 384,
-    start_bpm: int = 120,
-    std_bpm: float = 1.0,
-    agg=np.mean,
-    sr=48000,
-):
-    # From librosa.feature.rhythm
-    if agg is not None:
-        tg = agg(tg, axis=-1, keepdims=True)
-    bpms = tempo_frequencies(win_length, hop_length, sr=sr)
-    logprior = -0.5 * ((np.log2(bpms) - np.log2(start_bpm)) / std_bpm) ** 2
-    logprior = logprior[:, None]
-    best_period = np.argmax(np.log1p(1e6 * tg) + logprior, axis=-2)
-    return np.take(bpms, best_period)
 
 
 def get_bpm(groups):
@@ -268,8 +295,6 @@ def estimate_bpm(x, sr, tolerance=0.01, ds=1, convolve=True):
     valid_bpms = bpms[valid_indices]
     valid_spectrum = spectrum[valid_indices]
 
-    plt.plot(valid_bpms, valid_spectrum)
-
     # Use top n frequencies to allow
     peaks = sp.signal.find_peaks(valid_spectrum)[0]
     groups = []
@@ -302,6 +327,11 @@ def estimate_bpm(x, sr, tolerance=0.01, ds=1, convolve=True):
 
 
 class SharedInt:
+    """
+    64bit integer with shared memory.  Re-implements standard integer
+    arithmetic, including in-place ones, using pythons operators.
+    """
+
     def __init__(self, shared_memory_object, offset=0, value=None):
         self._int = ctypes.c_int64.from_buffer(
             shared_memory_object.buf, offset

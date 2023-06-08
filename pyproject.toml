@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loopmate"
+description = "Python looper"
+version = "0.0"
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["rehearsal", "audio"]
+authors = [
+{email = "tim@loderhose.com"},
+{name = "Tim Loderhose"}
+]
+classifiers = [
+"Programming Language :: Python :: 3",
+]
+dependencies = [
+"jupyter",
+# "librosa",
+"python-rtmidi",
+"matplotlib",
+"mido",
+"numpy",
+"pandas",
+"scipy",
+"seaborn",
+"sounddevice",
+"soundfile",
+"typer",
+]
+
+[project.optional-dependencies]
+dev = ["jupyter", "black", "black-macchiato", "mypy", "flake8", "isort", "python-lsp-server"]
+
+[tool.setuptools]
+packages = ["loopmate"]
+
+[tool.mypy]
+python_version = "3.9"
+
+# ... other project metadata fields as specified in:
+#     https://packaging.python.org/en/latest/specifications/declaring-project-metadata/

@@ -1,153 +1,218 @@
-# Modify/mix audio in separate process, once that's done, replace the audio in
-# the callback thread, such that the audio thread always just indexes the array
-# For mute, probably can only run action on mixed thread, instead of just the
-# one which is being muted
-
-# Store didchange variable and audio_prev - if didchange, add fade
 from __future__ import annotations
 
-import asyncio
-import sys
-import termios
+import threading
 import time
-import tty
+from multiprocessing import Process
+from warnings import warn
 
 import numpy as np
 import pedalboard
+import rtmidi
 import sounddevice as sd
 import soundfile as sf
-from scipy import signal as sig
 
-from loopmate import config
-from loopmate.actions import Effect
+from loopmate import config, recording as lr
+from loopmate.actions import (
+    BackCaptureTrigger,
+    Effect,
+    Mute,
+    MuteTrigger,
+    RecordTrigger,
+)
 from loopmate.loop import Audio, Loop
-from loopmate.utils import Metre
 
-# TODO: implement fitting effects as actions
-
-
-def chirp(
-    f0, f1, l=10, a=1.0, method: str = "logarithmic", phi=-90, sr: int = 44100
-):
-    """
-    Generates a sine sweep between two frequencies of a given length.
-    :param f0: Frequency (in Hertz) at t=0
-    :param f1: Frequency (in Hertz) at t=l*sr (end frequency of the sweep)
-    :param l: Length (in seconds) of the sweep
-    :param a: Amplitude scaling factor (default=1), can be array-like of
-              length l * sr to provide element-wise scaling.
-    :param method: linear, logarithmic, quadratic or hyperbolic
-    :param phi: Phase offset in degrees (default=-90 - to start at 0 amplitude)
-    :param sr: Sampling rate of the generated waveform (default=44100 Hz)
-    :return: Array containing the sweep
-    """
-    t = np.linspace(0, l, int(l * sr), endpoint=False)
-    return a * sig.chirp(t, f0, l, f1, method=method, phi=phi)
+delay = pedalboard.Delay(0.8, 0.4, 0.3)
 
 
-class CharIn:
-    def __init__(self, loop=None):
-        self.loop = loop or asyncio.get_event_loop()
-        self.q = asyncio.Queue()
-        self.loop.add_reader(sys.stdin, self.got_input)
-
-    def got_input(self):
-        asyncio.ensure_future(self.q.put(sys.stdin.read(1)), loop=self.loop)
-
-    async def __call__(self):
-        return await self.q.get()
+def decode_midi_status(status):
+    return status // 16, status % 16 + 1
 
 
-async def main():
-    print(sd.query_devices())
-    piano, _ = sf.read("../data/piano.wav", dtype=np.float32)
-    tom, _ = sf.read("../data/tom.wav", dtype=np.float32)
-    clave, _ = sf.read("../data/clave.wav", dtype=np.float32)
-    tom = 0.5 * tom[: len(tom) // 2, None]
-    print(clave.shape)
-    clave = np.concatenate(
-        (
-            1 * clave[:, None],
-            np.zeros((config.sr - len(clave), 1), dtype=np.float32),
-        )
-    )
-    piano = piano[: len(tom) * 2]
-    # sweep = 0.2 * chirp(200, 1000, 2, method="linear", sr=sr)
-    # loop = Loop(sweep[:, None])
-    # loop = Loop(Audio(piano))
-    # loop.add_track(tom)
-    loop = Loop(Audio(clave, remove_pop=False))
-    # loop = Loop()
-    print(loop)
+class MidiQueue:
+    def __init__(self, loop: Loop):
+        self.loop = loop
+        self.port = rtmidi.MidiIn().open_port(config.MIDI_PORT)
+        self.port.set_callback(self.receive)
+        self.in_rec = False
 
-    ps = pedalboard.PitchShift(semitones=-6)
-    ds = pedalboard.Distortion(drive_db=20)
-    delay = pedalboard.Delay(0.8, 0.1, 0.3)
+    def receive(self, event, data=None):
+        gain = 1.0
+        try:
+            [status, note, velocity], deltatime = event
+            command, channel = decode_midi_status(status)
+        except Exception as e:
+            warn(f"{event} was not decodable!\n{e.message}")
 
-    try:
-        prompt = CharIn()
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        tty.setraw(fd)
-        while True:
-            c = await prompt()
-            print(c, end="\n\r")
-            if c == "s":
-                await loop.start()
-            if c == "m":
-                if loop.actions.mute is None:
-                    print("MUTING")
-                    loop.actions.mute = Effect(
-                        loop.anchor.current_frame,
-                        loop.anchor.n,
-                        lambda x: x * 0.0,
-                    )
+        if command != 9:
+            return
+
+        if config.MIDI_CHANNEL > 0:
+            if channel != config.MIDI_CHANNEL:
+                return
+        self.command(note)
+
+    def command(self, note):
+        match note:
+            case 25:
+                self.loop.start()
+            case 35:
+                if len(self.loop.actions.actions) > 0 and isinstance(
+                    self.loop.actions.actions[0], Mute
+                ):
+                    self.loop.actions.actions[0].cancel()
                 else:
-                    loop.actions.mute.cancel()
-            if c == "d":
-                loop.audios.pop()
-                if len(loop.audios) == 0:
-                    loop.anchor = None
-            if c == "o":
-                loop.stop()
-            if c == "r":
-                await loop.record()
-            if c == "b":
-                audio = loop.audios[-1]
-                peak = audio.audio.max()
-                audio.audio = peak * ps(audio.audio, config.sr)
-            if c == "e":
-                c = await prompt()
-                audio = loop.audios[-1]
-                if c == "d":
-                    audio.audio = ds(audio.audio, config.sr)
-                if c == "n":
-                    ps.semitones = 6
-                    audio.audio = ps(audio.audio, config.sr)
-                if c == "p":
-                    ps.semitones = -6
-                    audio.audio = ps(audio.audio, config.sr)
-                if c == "r":
-                    audio.reset_audio()
-                if c == "t":
-                    audio.audio = delay(audio.audio, config.sr)
-            if c == "c":
-                m = Metre(90, 4, 4)
+                    self.loop.actions.actions.appendleft(
+                        Mute(
+                            self.loop.anchor.current_frame, self.loop.anchor.n
+                        )
+                    )
+            case 27:
+                self.loop.audios.pop()
+                if len(self.loop.audios) == 0:
+                    self.loop.anchor = None
+            case 47:
+                if self.loop.anchor is None:
+                    bpm_quant = True
+                else:
+                    bpm_quant = False
+                self.in_rec = not self.in_rec
+                if self.in_rec:
+                    self.loop.start_recording(config.RECORD_CHANNELS)
+                else:
+                    self.loop.stop_recording()
+            case 57:
+                # Trigger record action at next loop which spawns another
+                # record (recording stop)
+                n = self.loop.anchor.loop_length
+                when = (
+                    n - round(self.loop.callback_time.output_delay * config.SR)
+                ) % self.loop.anchor.loop_length
+                self.loop.actions.actions.append(
+                    RecordTrigger(when, n, spawn=RecordTrigger(when, n))
+                )
+                self.loop.actions.actions.append(
+                    MuteTrigger(when, n, spawn=MuteTrigger(when, n))
+                )
+                print(self.loop.actions.actions)
+            case 30:
+                n = self.loop.anchor.loop_length
+                when = n - config.BLEND_SAMPLES - 256
+                self.loop.actions.actions.append(
+                    MuteTrigger(when, n, loop=False)
+                )
+            case 48:
+                self.loop.backcapture(1)
+            case 43:
+                self.loop.measure_air_delay()
+            case 50:
+                self.loop.audios[-1].audio *= 1.2
+            case 52:
+                self.loop.audios[-1].audio *= 0.8
+            case 55:
+                self.loop.audios[-1].reset_audio()
+            case 53:
+                self.loop.audios[-1].audio = delay(
+                    self.loop.audios[-1].audio, config.SR, reset=False
+                )
+            case 41:
+                self.loop.rec.data.quit = True
+                self.loop.actions.plans.put_nowait(True)
+                del self.loop.rec_audio
+                self.loop.stop()
+            case _:
+                pass  # Do nothing for other values.
 
-                loop.add_track(Audio(m.get_metronome(config.sr)[:, None]))
-            # Save
-            if c == "x":
-                audio = loop.audios[-1]
-                sf.write(f"{time.strftime('%s')}.wav", audio, config.sr)
-            if c == "q":
-                break
-    except (sd.CallbackStop, sd.CallbackAbort):
-        print("Stopped")
+        def start_new_recording(self, channels):
+            self.loop.start_record(channels, new=self.loop.anchor is None)
 
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        def delete(self, i):
+            assert i < len(
+                self.loop.audios
+            ), f"i ({i}) is larger than the number of audios!"
+            self.loop.audios.pop(i)
+            if len(self.loop.audios) == 0:
+                self.loop.anchor = None
+
+
+def plan_callback(loop: Loop):
+    """Callback which picks up triggers/actions from the plan queue.
+
+    :param loop: Loop object containing Actions
+    """
+    while True:
+        print("plan")
+        trigger = loop.actions.plans.get()
+        if isinstance(trigger, RecordTrigger):
+            print("Record in plan_callback")
+            # TODO: this will run into trouble if result_type == 8
+            if loop.rec.data.result_type == 0:
+                loop.start_recording()
+            else:
+                loop.stop_recording()
+            continue
+        elif isinstance(trigger, BackCaptureTrigger):
+            loop.backcapture(trigger.n_loops)
+            continue
+        elif isinstance(trigger, bool):
+            break
+
+
+def analysis_target():
+    """
+    target function for the multiprocessing.Process which will run ongoing
+    analysis on the audio which is constantly recorded.
+    """
+    with lr.RecAnalysis(config.REC_N, config.CHANNELS) as rec:
+        rec.run()
+    print("done analysis")
+
+
+def ondemand_target():
+    """target function for the multiprocessing.Process which will run
+    analysis like onset quantization or BPM estimation on demand.
+    """
+    with lr.AnalysisOnDemand(config.REC_N, config.CHANNELS) as rec:
+        rec.run()
+    print("done ondemand")
 
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    with lr.RecAudio(config.REC_N, config.CHANNELS) as rec:
+        ap = Process(target=analysis_target)
+        ap2 = Process(target=ondemand_target)
+        ap.start()
+        ap2.start()
+
+        print("started")
+
+        print(sd.query_devices())
+        piano, _ = sf.read("../data/piano.wav", dtype=np.float32)
+        clave, _ = sf.read("../data/clave.wav", dtype=np.float32)
+        clave = np.concatenate(
+            (
+                1 * clave[:, None],
+                np.zeros((config.SR - len(clave), 1), dtype=np.float32),
+            )
+        )
+        loop = Loop(rec, Audio(clave))
+        loop.start()
+        # hl = ExtraOutput(loop)
+
+        print(loop)
+
+        ps = pedalboard.PitchShift(semitones=-6)
+        ds = pedalboard.Distortion(drive_db=20)
+        delay = pedalboard.Delay(0.8, 0.1, 0.3)
+        limiter = pedalboard.Limiter()
+        loop.actions.append(
+            Effect(0, 10000000, lambda x: limiter(x, config.SR))
+        )
+
+        midi = MidiQueue(loop)
+
+        plan_thread = threading.Thread(target=plan_callback, args=(loop,))
+        plan_thread.start()
+        ap.join()
+        ap2.join()
+        plan_thread.join()
+        sd.sleep(10)

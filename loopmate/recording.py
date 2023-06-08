@@ -67,9 +67,6 @@ def make_recording_struct(
             ("recording_start", int_type),
             # End index counter
             ("recording_end", int_type),
-            # Flag to indicate that analysis thread has completed
-            # Potentially just use the integer and have 0 signal not ready
-            ("result_ready", ctypes.c_bool),
             # Type of result that can be taken:
             # 9 = finished recording
             # 8 = preliminary recording

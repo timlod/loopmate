@@ -21,22 +21,41 @@ from loopmate.actions import (
 )
 from loopmate.loop import Audio, Loop
 
-delay = pedalboard.Delay(0.8, 0.4, 0.3)
 
+def decode_midi_status(status: int) -> (int, int):
+    """
+    Convert int64 containing the MIDI command and channel into those
+    respectively.
 
-def decode_midi_status(status):
+    :param status: MIDI status as returned by python-rtmidi
+    """
     return status // 16, status % 16 + 1
 
 
-class MidiQueue:
+class MIDIHandler:
+    """
+    Defines callback to attach to MIDI input as well as possible
+    commands/actions to perform given MIDI input.
+
+    TODO: Make this prettier, logical - currently it's based on a default VMPK
+    map.  Should read a config with midi mapping to allow easy use with
+    different MIDI devices.
+    """
+
     def __init__(self, loop: Loop):
         self.loop = loop
         self.port = rtmidi.MidiIn().open_port(config.MIDI_PORT)
         self.port.set_callback(self.receive)
         self.in_rec = False
 
-    def receive(self, event, data=None):
-        gain = 1.0
+    def receive(self, event: tuple[list[int, int, int], float], data=None):
+        """Callback used by rtmidi.
+
+        :param event: event containing [status, note, velocity], deltatime.
+            Can have different structure if special MIDI events are fired.
+            Those are currently ignored.
+        :param data: additional data
+        """
         try:
             [status, note, velocity], deltatime = event
             command, channel = decode_midi_status(status)
@@ -51,7 +70,13 @@ class MidiQueue:
                 return
         self.command(note)
 
-    def command(self, note):
+    def command(self, note: int):
+        """Interact with self.loop based on the MIDI noteon event received.
+
+        TODO: add different actions based on MIDI velocity for live performance
+
+        :param note: MIDI note
+        """
         match note:
             case 25:
                 self.loop.start()
@@ -120,10 +145,7 @@ class MidiQueue:
                 del self.loop.rec_audio
                 self.loop.stop()
             case _:
-                pass  # Do nothing for other values.
-
-        def start_new_recording(self, channels):
-            self.loop.start_record(channels, new=self.loop.anchor is None)
+                pass
 
         def delete(self, i):
             assert i < len(
@@ -208,7 +230,7 @@ if __name__ == "__main__":
             Effect(0, 10000000, lambda x: limiter(x, config.SR))
         )
 
-        midi = MidiQueue(loop)
+        midi = MIDIHandler(loop)
 
         plan_thread = threading.Thread(target=plan_callback, args=(loop,))
         plan_thread.start()

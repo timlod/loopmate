@@ -19,7 +19,7 @@ from loopmate.actions import (
     MuteTrigger,
     RecordTrigger,
 )
-from loopmate.loop import Audio, Loop
+from loopmate.loop import Audio, ExtraOutput, Loop
 
 
 def decode_midi_status(status: int) -> (int, int):
@@ -205,10 +205,7 @@ if __name__ == "__main__":
         ap.start()
         ap2.start()
 
-        print("started")
-
         print(sd.query_devices())
-        piano, _ = sf.read("../data/piano.wav", dtype=np.float32)
         clave, _ = sf.read("../data/clave.wav", dtype=np.float32)
         clave = np.concatenate(
             (
@@ -218,10 +215,12 @@ if __name__ == "__main__":
         )
         loop = Loop(rec, Audio(clave))
         loop.start()
-        # hl = ExtraOutput(loop)
 
-        print(loop)
+        if config.HEADPHONE_DEVICE != config.DEVICE:
+            hl = ExtraOutput(loop)
 
+        # Some example effects that can be applied. TODO: make more
+        # interesting/intuitive
         ps = pedalboard.PitchShift(semitones=-6)
         ds = pedalboard.Distortion(drive_db=20)
         delay = pedalboard.Delay(0.8, 0.1, 0.3)

@@ -70,7 +70,8 @@ See what dependencies need to be installed in [pyproject.toml](pyproject.toml).
 
 ## Setup
 
-It is recommended to create a virtual environment to install this package into:
+It is recommended to create a virtual environment to install `loopmate` into.
+
 0. `python -m venv venv`
 1. `pip install -e .` - makes a development install (code changes are reflected
    without reinstall)

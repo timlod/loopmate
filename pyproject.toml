@@ -7,7 +7,7 @@ name = "loopmate"
 description = "Python looper"
 version = "0.0"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 keywords = ["rehearsal", "audio"]
 authors = [
 {email = "tim@loderhose.com"},
@@ -17,28 +17,24 @@ classifiers = [
 "Programming Language :: Python :: 3",
 ]
 dependencies = [
-"jupyter",
-# "librosa",
+# For FX
+"pedalboard",
+# For MIDI
 "python-rtmidi",
-"matplotlib",
-"mido",
 "numpy",
-"pandas",
 "scipy",
-"seaborn",
+# For audio processing
 "sounddevice",
-"soundfile",
-"typer",
+# For audio file loading
+"soundfile"
 ]
 
 [project.optional-dependencies]
-dev = ["jupyter", "black", "black-macchiato", "mypy", "flake8", "isort", "python-lsp-server"]
+devtools = ["black", "black-macchiato", "mypy", "flake8", "isort", "python-lsp-server"]
+dev = ["jupyter", "librosa", "matplotlib", "pandas"]
 
 [tool.setuptools]
 packages = ["loopmate"]
 
 [tool.mypy]
-python_version = "3.9"
-
-# ... other project metadata fields as specified in:
-#     https://packaging.python.org/en/latest/specifications/declaring-project-metadata/
+python_version = "3.10"

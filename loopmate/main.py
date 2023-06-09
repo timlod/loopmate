@@ -77,7 +77,7 @@ class MidiQueue:
                     bpm_quant = False
                 self.in_rec = not self.in_rec
                 if self.in_rec:
-                    self.loop.start_recording(config.RECORD_CHANNELS)
+                    self.loop.start_recording(channels=config.RECORD_CHANNELS)
                 else:
                     self.loop.stop_recording()
             case 57:

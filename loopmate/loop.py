@@ -10,8 +10,7 @@ import sounddevice as sd
 from scipy import signal as sig
 
 from loopmate import config
-from loopmate.actions import Actions, Sample, Start, Stop
-from loopmate.circular_array import CircularArray
+from loopmate.actions import Actions, Sample, Start
 from loopmate.utils import CLAVE, StreamTime, channels_to_int
 
 RAMP = np.linspace(1, 0, config.BLEND_SAMPLES, dtype=np.float32)[:, None]

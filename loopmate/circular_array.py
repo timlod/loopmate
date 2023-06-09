@@ -1,18 +1,6 @@
-from multiprocessing.shared_memory import SharedMemory
 from typing import Optional, Union
 
-# import matplotlib.pyplot as plt
 import numpy as np
-from scipy import signal as sig
-
-from loopmate.utils import (
-    EMA_MinMaxTracker,
-    PeakTracker,
-    SharedInt,
-    magsquared,
-    samples_to_frames,
-    tempo_frequencies,
-)
 
 
 def query_circular(

@@ -30,7 +30,7 @@ from __future__ import annotations
 import queue
 from collections import deque
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 import sounddevice as sd

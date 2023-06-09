@@ -1,11 +1,8 @@
 import ctypes
-import multiprocessing as mp
-import time
 from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 import sounddevice as sd
-import soundfile as sf
 from scipy import signal as sig
 from scipy.optimize import minimize
 from scipy.spatial import distance_matrix
@@ -14,9 +11,7 @@ from loopmate import config
 from loopmate.circular_array import CircularArray, query_circular
 from loopmate.utils import (
     EMA_MinMaxTracker,
-    PeakTracker,
     SharedInt,
-    StreamTime,
     frames_to_samples,
     magsquared,
     samples_to_frames,

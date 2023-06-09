@@ -11,6 +11,12 @@ to set it up right, given that ultimately things depend on realtime audio
 capture and multiple processes. There are classes and functions which could be
 tested regardless, which should be prioritized at some point.
 
+The main goal of `loopmate` is to have some simple functionality which could be
+hacked in Python, as well as learning about realtime audio processing. There
+are other, yet more advanced, open-source loopers out there
+(https://github.com/essej/sooperlooper for example), which you could check out
+if you need a reliable tool right now for music creation.
+
 ## Features
 - unlimited tracks (as CPU and RAM permit - it should be more than enough)
   - arbitrary IO mapping given what your audio interface permits
@@ -102,10 +108,10 @@ populates audio buffers which will be played back by PortAudio.
 
 Python does not make it easy to use multiple cores in a simple way:
 multi-threading happens on a single core only, and every thread may be impacted
-by the Global Interpreter Lock (GIL). The GIL is the main reason why it's
-usually not recommended to use Python for realtime audio - for example, if
-garbage collection happens to lock the callback thread at the wrong moment,
-this could lead to buffer underflow, and thus audio glitches.
+by the Global Interpreter Lock (GIL). The GIL is the main reason why it's not
+recommended to use Python for realtime audio - for example, if garbage
+collection happens to lock the callback thread at the wrong moment, this could
+lead to buffer underflow, and thus audio glitches.
 
 To minimize load on the callback thread, `loopmate` uses two additional
 processes, meaning there are 3 cores the program can utilize:

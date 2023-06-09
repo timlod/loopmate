@@ -395,6 +395,9 @@ class AnalysisOnDemand(RecAnalysis):
         """Detect onsets since requested start frame based on shared memory
         arrays.
 
+        Online implementation of librosa's onset_detect algorithm (as of
+        0.10.0).
+
         :param start: start frame indexing onset envelope.  Should be a
             negative index.
         """
@@ -564,11 +567,13 @@ class AnalysisOnDemand(RecAnalysis):
     def tempo(self, tg, agg=np.mean) -> float:
         """Compute BPM estimate.
 
+        Taken from librosa.feature.rhythm:
+        Copyright (c) 2013--2023, librosa development team.
+
         :param tg: tempogram slice to estimate the BPM for
         :param agg: aggregation method - if None, return estimate for each
             frame of the tempogram.
         """
-        # From librosa.feature.rhythm
         best_period = np.argmax(
             np.log1p(1e6 * tg) + self.bpm_logprior, axis=-2
         )

@@ -87,6 +87,7 @@ def tempo_frequencies(n_bins: int, hop_length: int, sr: int) -> np.ndarray:
 
     Taken from
     https://librosa.org/doc/latest/_modules/librosa/core/convert.html#tempo_frequencies
+    Copyright (c) 2013--2023, librosa development team.
 
     :param n_bins: number of lag bins
     :param hop_length: hop_length of the STFT

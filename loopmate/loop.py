@@ -32,6 +32,9 @@ class Audio:
     current_index: int = 0
     n: int = field(init=False)
     channels: int = field(init=False)
+    # TODO: define this such that audio is mixed down/panned according to the
+    # output configuration
+    # mix = ...
 
     def __post_init__(self):
         try:
@@ -132,7 +135,7 @@ class Loop:
         self.stream = sd.Stream(
             samplerate=config.SR,
             device=config.DEVICE,
-            channels=config.CHANNELS,
+            channels=config.N_CHANNELS,
             callback=self._get_callback(),
             latency=config.LATENCY,
             blocksize=config.BLOCKSIZE,
@@ -192,7 +195,7 @@ class Loop:
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
-            self.rec_audio.write(indata)
+            self.rec_audio.write(indata[:, config.CHANNELS])
 
             outdata[:] = 0.0
             for audio in self.audios:
@@ -439,7 +442,7 @@ class ExtraOutput:
         self.stream = sd.OutputStream(
             samplerate=config.SR,
             device=config.HEADPHONE_DEVICE,
-            channels=config.CHANNELS,
+            channels=config.N_CHANNELS,
             callback=self._get_callback(),
             latency=config.LATENCY * 0.1,
             blocksize=config.BLOCKSIZE,

@@ -83,8 +83,6 @@ def make_recording_struct(
 
     class CRecording(ctypes.Structure):
         _fields_ = [
-            ### Everything before write_counter is used for IPC
-            ## Indicate to analysis thread that an action should be performed
             # Number of recording (to allow for multiple simultaneous
             # recordings)
             ("recording_number", int_type),

@@ -162,7 +162,7 @@ def analysis_target():
     target function for the multiprocessing.Process which will run ongoing
     analysis on the audio which is constantly recorded.
     """
-    with lr.RecAnalysis(config.REC_N, config.CHANNELS) as rec:
+    with lr.RecAnalysis(config.REC_N, config.N_CHANNELS) as rec:
         rec.run()
     print("done analysis")
 
@@ -171,13 +171,13 @@ def ondemand_target():
     """target function for the multiprocessing.Process which will run
     analysis like onset quantization or BPM estimation on demand.
     """
-    with lr.AnalysisOnDemand(config.REC_N, config.CHANNELS) as rec:
+    with lr.AnalysisOnDemand(config.REC_N, config.N_CHANNELS) as rec:
         rec.run()
     print("done ondemand")
 
 
 if __name__ == "__main__":
-    with lr.RecAudio(config.REC_N, config.CHANNELS) as rec:
+    with lr.RecAudio(config.REC_N, config.N_CHANNELS) as rec:
         ap = Process(target=analysis_target)
         ap2 = Process(target=ondemand_target)
         ap.start()

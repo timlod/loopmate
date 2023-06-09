@@ -1,13 +1,24 @@
 # Global configuration for loopmate
 from math import ceil
 
+from numpy import array
+
 # Global sample rate for all audio being played/recorded - if loading different
 # SR files, convert them
 SR = 48000
-CHANNELS = 1
+# Channels to record - they start at 0! TODO: Currently, this is not using
+# direct specification of what to record within the host API, meaning that if
+# you want to record channel 31 and 32, loopmate will always record 32
+# channels, and slice the last two. That will mean a significant decrease in
+# efficiency. For now, only one or two channels will work correctly, and they
+# need to be the first two
+CHANNELS = array([0, 1])
+N_CHANNELS = max(CHANNELS) + 1
 # TODO: allow configuration of this to not necessarily always record everything
-RECORD_CHANNELS = [0, 1]
+RECORD_CHANNELS = CHANNELS
 DEVICE = "default"
+# Change this to your other device used for headphone output.
+HEADPHONE_DEVICE = "default"
 # Desired latency of audio interface, in ms
 LATENCY = 0.001
 # Blocksize to use in processing, the lower the higher the CPU usage, and lower

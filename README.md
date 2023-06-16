@@ -57,7 +57,7 @@ if you need a reliable tool right now for music creation.
 
 ## Requirements
 
-- Python 3.10
+- Python 3.10+
   - there are switch/case statements and type hints that require 3.10
 - MIDI input
   - for a simple, keyboard-based test, you can use https://vmpk.sourceforge.io/

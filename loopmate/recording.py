@@ -272,8 +272,8 @@ class RecAnalysis:
         """Computes a single frame of the STFT of the most recent audio, as
         well as its onset strength and tempogram frame.
         """
-        stft = np.fft.rfft(self.window * self.audio[-self.n_fft :].mean(-1))
-        self.stft.write(stft[:, None])
+        stftf = np.fft.rfft(self.window * self.audio[-self.n_fft :].mean(-1))
+        self.stft.write(stftf[:, None])
         self.onset_strength()
         self.tempogram()
 

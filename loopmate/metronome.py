@@ -11,6 +11,45 @@ import rtmidi
 CLAVE, MSR = sf.read("../data/clave.wav", dtype=np.float32)
 CLAVE = CLAVE[:, None]
 
+# TODO: complex metronome patterns can live as actions on the loop
+
+
+def generate_click_locations(
+    beats: int,
+    bpm: int,
+    sampling_rate: int,
+    level: int = 1,
+    permutation: int = 0,
+):
+    """Generate the locations of clicks.
+
+    Permutation 0 will always return quarter note locations.  For each
+    subsequent level (i.e. level 2 corresponds to eighth notes), we can get
+    level - 1 permutations, i.e. permutation 1 at level 2 will correspond to
+    eighth note off-beats.
+
+    At level 4 (sixteenth notes), permutation 3 will be the last sixteenth at
+    each beat.
+
+    :param beats: number of beats (subdivision is assumed to be quarter = /4)
+        in the time signature
+    :param bpm: beats per minute
+    :param sampling_rate: sampling rate for playback
+    :param level: how many subdivisions we put into one quarter (of each beat),
+        e.g. 1 - quarters, 2 - eighth, 3 - eighth triplets, 4 - sixteenth, 5 -
+        quintuplets, etc.
+
+    :param permutation: which permutation to use - default (0) always uses the
+        downbeat
+    """
+    assert permutation < level, "permutation needs to be < level!"
+    samples_per_beat = (60 / bpm) * sampling_rate
+
+    return [
+        round(samples_per_beat * i / level)
+        for i in range(permutation, beats * level, level)
+    ]
+
 
 class Metronome(loop.Audio):
     # this will be the anchor beat, with samples fired as repeated actions

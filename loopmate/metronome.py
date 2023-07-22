@@ -1,3 +1,4 @@
+import random
 import soundfile as sf
 from warnings import warn
 import numpy as np
@@ -40,6 +41,7 @@ class Metronome(loop.Audio):
 
     @tempo.setter
     def tempo(self, bpm):
+        assert bpm > 0, "bpm can't be smaller than 1!"
         old_length = self.loop_length
         self.bpm = bpm
         self.loop_length = self.n = self.length()
@@ -83,15 +85,24 @@ class Metronome(loop.Audio):
 
 
 class ClickTrigger(Trigger):
-    def __init__(self, when, loop_length, **kwargs):
+    def __init__(self, when, loop_length, p=1.0, **kwargs):
+        """Trigger to immediately play a click sample.
+
+        :param when: index at which to play the sample
+        :param loop_length: length of the containing loop
+        :param p: probability with which to trigger - use to randomly drop out
+                  clicks.
+        """
+        self.p = p
         super().__init__(when, loop_length, loop=True, **kwargs)
 
     def do(self, actions):
         # potentially just blow up this loop_length in case we drastically slow
         # down
-        sample = Sample(CLAVE, self.loop_length * 10, 0.9)
-        actions.actions.appendleft(sample)
-        actions.active.put_nowait(sample)
+        if random.random() <= self.p:
+            sample = Sample(CLAVE, self.loop_length * 10, 0.9)
+            actions.actions.appendleft(sample)
+            actions.active.put_nowait(sample)
 
 
 def decode_midi_status(status: int) -> (int, int):

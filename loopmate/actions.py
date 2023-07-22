@@ -413,7 +413,7 @@ class BackCaptureTrigger(Trigger):
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
     max: int = 20
-    actions: list = field(default_factory=deque)
+    actions: deque = field(default_factory=deque)
     active: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
     plans: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
 

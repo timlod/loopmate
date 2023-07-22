@@ -15,11 +15,7 @@ CLAVE = CLAVE[:, None]
 
 
 def generate_click_locations(
-    beats: int,
-    bpm: int,
-    sampling_rate: int,
-    level: int = 1,
-    permutation: int = 0,
+    beats: int, bpm: int, sr: int, level: int = 1, permutation: int = 0
 ):
     """Generate the locations of clicks.
 
@@ -34,7 +30,7 @@ def generate_click_locations(
     :param beats: number of beats (subdivision is assumed to be quarter = /4)
         in the time signature
     :param bpm: beats per minute
-    :param sampling_rate: sampling rate for playback
+    :param sr: sampling rate for playback
     :param level: how many subdivisions we put into one quarter (of each beat),
         e.g. 1 - quarters, 2 - eighth, 3 - eighth triplets, 4 - sixteenth, 5 -
         quintuplets, etc.
@@ -43,7 +39,7 @@ def generate_click_locations(
         downbeat
     """
     assert permutation < level, "permutation needs to be < level!"
-    samples_per_beat = (60 / bpm) * sampling_rate
+    samples_per_beat = (60 / bpm) * sr
 
     return [
         round(samples_per_beat * i / level)
@@ -58,11 +54,13 @@ class Metronome(loop.Audio):
         bpm: int,
         beats: int,
         subdivision: int,
+        permutation: int = 0,
         sr: int = 44100,
     ):
         self.bpm = bpm
         self.beats = beats
         self.subdivision = subdivision
+        self.permutation = permutation
         self.sr = sr
 
         # 4096 would be the max buffer size to be safe
@@ -95,12 +93,11 @@ class Metronome(loop.Audio):
         # whenever changes are made, this should purge the action list and make
         # a new one according to the metronome settings
         self.actions.actions.clear()
-        for beat in range(self.beats):
-            self.actions.append(
-                ClickTrigger(
-                    round(beat * 60 / self.bpm * self.sr), self.loop_length
-                )
-            )
+        clicks = generate_click_locations(
+            self.beats, self.bpm, self.sr, self.subdivision, self.permutation
+        )
+        for click in clicks:
+            self.actions.append(ClickTrigger(click, self.loop_length))
 
     def get_n(self, samples: int) -> np.ndarray:
         """Return the next batch of audio in the loop
@@ -226,7 +223,7 @@ if __name__ == "__main__":
     from loopmate import config, recording as lr
 
     with lr.RecAudio(config.REC_N, config.N_CHANNELS) as rec:
-        m = Metronome(60, 1, 4, config.SR)
+        m = Metronome(60, 4, 4, 3, sr=config.SR)
         loop = loop.Loop(rec, m)
         loop.start()
         midi = MIDIHandler(m, loop)

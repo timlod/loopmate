@@ -105,13 +105,13 @@ class Action:
             offset_b += next_index
         return offset_a, offset_b
 
-    def run(self, data):
+    def run(self, data, current_index):
         """Run action on incoming audio and updates internal counters
         accordingly.
 
         :param data: audio buffer
         """
-        self.do(data)
+        self.do(data, current_index)
         self.current_sample += len(data)
 
         if self.current_sample >= self.n:
@@ -126,7 +126,7 @@ class Action:
     def __lt__(self, other):
         return self.priority < other.priority
 
-    def do(self, outdata):
+    def do(self, outdata, current_index):
         """Perform manipulations on the output buffer.
 
         :param outdata: output buffer
@@ -187,9 +187,33 @@ class CrossFade:
         return out
 
 
+# TODO:
+# Traceback (most recent call last):
+#   File "/home/tim/projects/loopmate/loopmate/main.py", line 71, in receive
+#     self.command(note)
+#   File "/home/tim/projects/loopmate/loopmate/main.py", line 131, in command
+#     self.loop.measure_air_delay()
+#   File "/home/tim/projects/loopmate/loopmate/loop.py", line 425, in measure_air_delay
+#     rec_audio = self.rec_audio[-samples_waited + indelay_samples :]
+#                 ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/home/tim/projects/loopmate/loopmate/circular_array.py", line 106, in __getitem__
+#     return self.query(i)
+#            ^^^^^^^^^^^^^
+#   File "/home/tim/projects/loopmate/loopmate/circular_array.py", line 97, in query
+#     return query_circular(
+#            ^^^^^^^^^^^^^^^
+#   File "/home/tim/projects/loopmate/loopmate/circular_array.py", line 31, in query_circular
+#     -N <= start < stop <= 0
+# AssertionError: Can only slice at most N (2646000) items backward on! 455/0
+
+
 class Sample(Action):
     def __init__(
-        self, sample: np.ndarray, loop_length: int, gain: float = 1.0
+        self,
+        sample: np.ndarray,
+        loop_length: int,
+        wait: int = 0,
+        gain: float = 1.0,
     ):
         """(Immediately) play this sample when put into actions.  This is
         currently kind of hacky as it overwrites essential functionality of the
@@ -198,6 +222,9 @@ class Sample(Action):
         :param sample: array containing sample to play
         :param loop_length: length of containing loop, to make sure that we can
             immediately start playing
+        :param wait: if playback at an exact time is needed (over
+            as-quick-as-possible playback), start this many samples into the
+            first data array
         :param gain: gain to apply to sample
         """
         super().__init__(0, loop_length, loop_length)
@@ -205,13 +232,17 @@ class Sample(Action):
         # Overwrite n from Action (which would be set to loop_length) to allow
         # playing samples longer than loop_length
         self.n = len(sample)
+        self.wait = wait
         self.gain = gain
 
-    def do(self, data):
+    def do(self, data, current_index):
         sample = self.sample[
-            self.current_sample : self.current_sample + len(data)
+            self.current_sample : self.current_sample + len(data) - self.wait
         ]
-        data[: len(sample)] += self.gain * sample
+        data[self.wait : len(sample) + self.wait] += self.gain * sample
+        # We only wait once in the beginning, if at all
+        if self.wait:
+            self.wait = 0
 
     def index(self, current_index, next_index):
         return 0, self.n
@@ -234,7 +265,7 @@ class Effect(Action):
         self.current_sample = start
         self.transformation = transformation
 
-    def do(self, data):
+    def do(self, data, current_index):
         """Called from within run inside callback. Applies the effect.
 
         :param data: outdata in callback, modified in-place
@@ -271,7 +302,7 @@ class Start(Action):
         super().__init__(start, start + blend.n, loop_length, loop=False)
         self.blend = blend
 
-    def do(self, data):
+    def do(self, data, current_index):
         data_trans = data * 0.0
         data_trans = self.blend(data, data_trans)
         data[:] = data_trans
@@ -288,7 +319,7 @@ class Stop(Action):
         super().__init__(start, start + blend.n, loop_length, loop=False)
         self.blend = blend
 
-    def do(self, data):
+    def do(self, data, current_index):
         data_trans = data * 0.0
         data_trans = self.blend(data, data_trans)
         data[:] = data_trans
@@ -320,7 +351,7 @@ class Trigger:
         self.consumed = False
         self.i = self.countdown
 
-    def run(self, actions):
+    def run(self, actions, current_index):
         """Run this trigger.  This means count down to trigger or consume.
 
         :param actions: Actions object that can be manipulated if triggered
@@ -329,13 +360,13 @@ class Trigger:
             self.i -= 1
             self.consumed = False
         else:
-            self.do(actions)
+            self.do(actions, current_index)
             if self.loop:
                 self.i = self.countdown
             else:
                 self.consumed = True
 
-    def do(self, actions):
+    def do(self, actions, current_index):
         """By default, simply put this trigger in the plan queue.  Override to
         trigger different things.
 
@@ -389,7 +420,7 @@ class MuteTrigger(Trigger):
     def __init__(self, when, loop_length, **kwargs):
         super().__init__(when, loop_length, **kwargs)
 
-    def do(self, actions):
+    def do(self, actions, current_index):
         if len(actions.actions) > 0 and isinstance(actions.actions[0], Mute):
             actions.actions[0].cancel()
         else:
@@ -439,7 +470,7 @@ class Actions:
             action = self.active.get_nowait()
             if isinstance(action, Trigger):
                 print(f"Trigger {action}, {current_index}")
-                action.run(self)
+                action.run(self, current_index)
                 if action.consumed:
                     print(self.plans)
                     if not action.loop:
@@ -452,7 +483,7 @@ class Actions:
             offset_a, offset_b = action.index_outdata(
                 current_index, next_index
             )
-            action.run(outdata[offset_a:offset_b])
+            action.run(outdata[offset_a:offset_b], current_index)
             if action.consumed:
                 print(f"consumed {action}")
                 self.actions.remove(action)

@@ -451,6 +451,9 @@ class Actions:
     def append(self, action: Action | Trigger):
         self.actions.append(action)
 
+    def prepend(self, action: Action | Trigger):
+        self.actions.insert(0, action)
+
     def run(self, outdata, current_index, next_index):
         """Run all actions (to be called once every callback)
 

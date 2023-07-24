@@ -1,3 +1,5 @@
+import json
+from queue import Queue
 import random
 import soundfile as sf
 from warnings import warn
@@ -6,16 +8,16 @@ import sounddevice as sd
 from loopmate import loop
 from loopmate.actions import Sample, Trigger
 import rtmidi
-
+from scipy.signal import resample
 
 CLAVE, MSR = sf.read("../data/clave.wav", dtype=np.float32)
 CLAVE = CLAVE[:, None]
-
-# TODO: complex metronome patterns can live as actions on the loop
+# Shorten the sample somewhat
+CLAVE = resample(CLAVE, 4096)
 
 
 def generate_click_locations(
-    beats: int, bpm: int, sr: int, level: int = 1, permutation: int = 0
+    beats: int, bpm: int, level: int = 1, permutation: int = 0, sr: int = 44100
 ):
     """Generate the locations of clicks.
 
@@ -89,12 +91,19 @@ class Metronome(loop.Audio):
         )
         self.new_actions()
 
+    def set(self, bpm, beats, subdivision, permutation, p):
+        self.beats = beats
+        self.subdivision = subdivision
+        self.permutation = permutation
+        self.p = p
+        self.tempo = bpm
+
     def new_actions(self):
         # whenever changes are made, this should purge the action list and make
         # a new one according to the metronome settings
         self.actions.actions.clear()
         clicks = generate_click_locations(
-            self.beats, self.bpm, self.sr, self.subdivision, self.permutation
+            self.beats, self.bpm, self.subdivision, self.permutation, self.sr
         )
         for click in clicks:
             self.actions.append(ClickTrigger(click, self.loop_length))
@@ -112,7 +121,9 @@ class Metronome(loop.Audio):
         else:
             self.current_index += samples
 
-        # self.audio is just zeros, so this will always work
+        # self.audio is just zeros, so this will always work we. we use copy
+        # because actions can modify out in place, which without copy would be
+        # just a view
         out = self.audio[:samples].copy()
 
         # this will actually place our clicks
@@ -139,6 +150,33 @@ class ClickTrigger(Trigger):
             sample = Sample(CLAVE, self.loop_length * 10, 0.9)
             actions.actions.appendleft(sample)
             actions.active.put_nowait(sample)
+
+
+class ClickSchedule(Trigger):
+    def __init__(self, metronome: Metronome, schedule, **kwargs):
+        """Use the supplied click schedule
+
+        :param when:
+        :param loop_length:
+        :param schedule:
+        """
+        self.metronome = metronome
+        schedule = [x for x in schedule for i in range(x["bars"])]
+        self.schedule = Queue()
+        for x in schedule:
+            if "bars" in x:
+                del x["bars"]
+            self.schedule.put(x)
+
+        self.metronome.set(**schedule[0])
+        super().__init__(0, self.metronome.loop_length, loop=True, **kwargs)
+
+    def do(self, actions):
+        x = self.schedule.get()
+        self.metronome.set(**x)
+        self.schedule.put(x)
+        self.when = self.loop_length - 1024
+        self.loop_length = self.metronome.loop_length
 
 
 def decode_midi_status(status: int) -> (int, int):
@@ -222,9 +260,14 @@ class MIDIHandler:
 if __name__ == "__main__":
     from loopmate import config, recording as lr
 
+    with open("test.json") as f:
+        schedule = json.load(f)
+
     with lr.RecAudio(config.REC_N, config.N_CHANNELS) as rec:
         m = Metronome(60, 4, 4, 3, sr=config.SR)
         loop = loop.Loop(rec, m)
+        m_sched = ClickSchedule(m, schedule)
+        loop.actions.append(m_sched)
         loop.start()
         midi = MIDIHandler(m, loop)
         while True:

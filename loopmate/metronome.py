@@ -147,11 +147,16 @@ class ClickTrigger(Trigger):
         self.p = p
         super().__init__(when, loop_length, loop=True, **kwargs)
 
-    def do(self, actions):
+    def do(self, actions, current_index):
         # potentially just blow up this loop_length in case we drastically slow
         # down
         if random.random() <= self.p:
-            sample = Sample(CLAVE, self.loop_length * 10, 0.9)
+            sample = Sample(
+                CLAVE,
+                self.loop_length * 10,
+                wait=self.when - current_index,
+                gain=0.9,
+            )
             actions.actions.appendleft(sample)
             actions.active.put_nowait(sample)
 

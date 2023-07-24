@@ -64,6 +64,7 @@ class Metronome(loop.Audio):
         self.subdivision = subdivision
         self.permutation = permutation
         self.sr = sr
+        self.p = 1
 
         # 4096 would be the max buffer size to be safe
         audio = np.zeros(4096, dtype=np.float32)
@@ -105,8 +106,11 @@ class Metronome(loop.Audio):
         clicks = generate_click_locations(
             self.beats, self.bpm, self.subdivision, self.permutation, self.sr
         )
+
         for click in clicks:
-            self.actions.append(ClickTrigger(click, self.loop_length))
+            self.actions.append(
+                ClickTrigger(click, self.loop_length, p=self.p)
+            )
 
     def get_n(self, samples: int) -> np.ndarray:
         """Return the next batch of audio in the loop

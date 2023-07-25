@@ -23,37 +23,47 @@ def generate_click_locations(
     beats: int,
     bpm: int,
     subdivision: int = 1,
-    permutation: int = 0,
+    permutation: int | list[int] = 0,
     sr: int = 44100,
 ):
     """Generate the locations of clicks.
 
     Permutation 0 will always return quarter note locations.  For each
-    subsequent subdivision (i.e. subdivision 2 corresponds to eighth notes), we can get
-    subdivision - 1 permutations, i.e. permutation 1 at subdivision 2 will correspond to
-    eighth note off-beats.
+    subsequent subdivision (i.e. subdivision 2 corresponds to eighth notes), we
+    can get subdivision - 1 permutations, i.e. permutation 1 at subdivision 2
+    will correspond to eighth note off-beats.
 
-    At subdivision 4 (sixteenth notes), permutation 3 will be the last sixteenth at
-    each beat.
+    At subdivision 4 (sixteenth notes), permutation 3 will be the last
+    sixteenth at each beat.
 
     :param beats: number of beats (subdivision is assumed to be quarter = /4)
         in the time signature
     :param bpm: beats per minute
     :param sr: sampling rate for playback
-    :param subdivision: how many subdivisions we put into one quarter (of each beat),
-        e.g. 1 - quarters, 2 - eighth, 3 - eighth triplets, 4 - sixteenth, 5 -
-        quintuplets, etc.
+    :param subdivision: how many subdivisions we put into one quarter (of each
+        beat), e.g. 1 - quarters, 2 - eighth, 3 - eighth triplets, 4 -
+        sixteenth, 5 - quintuplets, etc.
 
     :param permutation: which permutation to use - default (0) always uses the
-        downbeat
+        downbeat.  Can also be a list of permutations.
     """
-    assert permutation < subdivision, "permutation needs to be < subdivision!"
+    if isinstance(permutation, int):
+        permutation = [permutation]
+
+    for p in permutation:
+        assert p < subdivision, "permutation needs to be < subdivision!"
+
     samples_per_beat = (60 / bpm) * sr
 
-    return [
-        round(samples_per_beat * i / subdivision)
-        for i in range(permutation, beats * subdivision, subdivision)
-    ]
+    clicks = []
+    for p in permutation:
+        clicks.extend(
+            [
+                round(samples_per_beat * i / subdivision)
+                for i in range(p, beats * subdivision, subdivision)
+            ]
+        )
+    return clicks
 
 
 class Metronome(loop.Audio):

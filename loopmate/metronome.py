@@ -44,7 +44,7 @@ class Metronome(loop.Audio):
         audio = np.zeros(4096, dtype=np.float32)
         super().__init__(audio)
         self.n = self.loop_length = self.length()
-        self.new_actions()
+        self.add_clicks()
 
     def add_schedule(self, schedule):
         self.schedule = schedule

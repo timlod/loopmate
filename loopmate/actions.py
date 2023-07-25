@@ -242,6 +242,7 @@ class Sample(Action):
         data[self.wait : len(sample) + self.wait] += self.gain * sample
         # We only wait once in the beginning, if at all
         if self.wait:
+            self.current_sample -= self.wait
             self.wait = 0
 
     def index(self, current_index, next_index):

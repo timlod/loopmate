@@ -162,7 +162,7 @@ class ClickTrigger(Trigger):
             sample = Sample(
                 CLAVE,
                 self.loop_length * 10,
-                wait=self.when - current_index,
+                wait=max(0, self.when - current_index),
                 gain=0.9,
             )
             actions.actions.appendleft(sample)

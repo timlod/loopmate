@@ -16,6 +16,7 @@ CLAVE[-256:, 0] *= np.linspace(1, 0, 256)
 
 # Shorten the sample somewhat and raise pitch
 CLAVE = resample(CLAVE, 1800)
+CLAVE1 = resample(CLAVE, 1500)
 
 
 def generate_click_locations(
@@ -160,7 +161,7 @@ class ClickTrigger(Trigger):
         # down
         if random.random() <= self.p:
             sample = Sample(
-                CLAVE,
+                CLAVE if self.when != 0 else CLAVE1,
                 self.loop_length * 10,
                 wait=max(0, self.when - current_index),
                 gain=0.9,

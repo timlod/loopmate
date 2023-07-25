@@ -185,8 +185,11 @@ class ClickSchedule(Trigger):
                 del x["bars"]
             self.schedule.put(x)
 
+        self.metronome.current_index = 0
         self.metronome.set(**schedule[0])
-        super().__init__(0, self.metronome.loop_length, loop=True, **kwargs)
+        super().__init__(
+            0, self.metronome.loop_length, loop=True, priority=0, **kwargs
+        )
 
     def do(self, actions):
         x = self.schedule.get()

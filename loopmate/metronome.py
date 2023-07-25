@@ -19,35 +19,39 @@ CLAVE = resample(CLAVE, 1800)
 
 
 def generate_click_locations(
-    beats: int, bpm: int, level: int = 1, permutation: int = 0, sr: int = 44100
+    beats: int,
+    bpm: int,
+    subdivision: int = 1,
+    permutation: int = 0,
+    sr: int = 44100,
 ):
     """Generate the locations of clicks.
 
     Permutation 0 will always return quarter note locations.  For each
-    subsequent level (i.e. level 2 corresponds to eighth notes), we can get
-    level - 1 permutations, i.e. permutation 1 at level 2 will correspond to
+    subsequent subdivision (i.e. subdivision 2 corresponds to eighth notes), we can get
+    subdivision - 1 permutations, i.e. permutation 1 at subdivision 2 will correspond to
     eighth note off-beats.
 
-    At level 4 (sixteenth notes), permutation 3 will be the last sixteenth at
+    At subdivision 4 (sixteenth notes), permutation 3 will be the last sixteenth at
     each beat.
 
     :param beats: number of beats (subdivision is assumed to be quarter = /4)
         in the time signature
     :param bpm: beats per minute
     :param sr: sampling rate for playback
-    :param level: how many subdivisions we put into one quarter (of each beat),
+    :param subdivision: how many subdivisions we put into one quarter (of each beat),
         e.g. 1 - quarters, 2 - eighth, 3 - eighth triplets, 4 - sixteenth, 5 -
         quintuplets, etc.
 
     :param permutation: which permutation to use - default (0) always uses the
         downbeat
     """
-    assert permutation < level, "permutation needs to be < level!"
+    assert permutation < subdivision, "permutation needs to be < subdivision!"
     samples_per_beat = (60 / bpm) * sr
 
     return [
-        round(samples_per_beat * i / level)
-        for i in range(permutation, beats * level, level)
+        round(samples_per_beat * i / subdivision)
+        for i in range(permutation, beats * subdivision, subdivision)
     ]
 
 

@@ -191,12 +191,24 @@ class ClickSchedule(Trigger):
             0, self.metronome.loop_length, loop=True, priority=0, **kwargs
         )
 
-    def do(self, actions):
+    def do(self, actions, current_index):
         x = self.schedule.get()
+        while not self.metronome.actions.active.empty():
+            self.metronome.actions.active.get()
+
         self.metronome.set(**x)
         self.schedule.put(x)
-        self.when = self.loop_length - 1024
+        clicks = generate_click_locations(
+            x["beats"], x["bpm"], x["subdivision"], x["permutation"]
+        )
+
         self.loop_length = self.metronome.loop_length
+        # In case we need to immediately play on the one
+        if clicks[0] == 0:
+            self.metronome.actions.active.put_nowait(
+                self.metronome.actions.actions[0]
+            )
+        self.metronome.actions.append(self)
 
 
 def decode_midi_status(status: int) -> (int, int):

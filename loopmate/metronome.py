@@ -310,8 +310,11 @@ if __name__ == "__main__":
         m = Metronome(60, 4, 4, 3, sr=config.SR)
         loop = loop.Loop(rec, m)
         m_sched = ClickSchedule(m, schedule)
-        loop.actions.append(m_sched)
+        m.actions.prepend(m_sched)
         loop.start()
         midi = MIDIHandler(m, loop)
-        while True:
-            sd.sleep(10)
+        try:
+            while True:
+                sd.sleep(10)
+        except KeyboardInterrupt:
+            pass

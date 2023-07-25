@@ -109,12 +109,23 @@ class Metronome(loop.Audio):
         )
         self.new_actions()
 
-    def set(self, bpm, beats, subdivision, permutation, p):
-        self.beats = beats
-        self.subdivision = subdivision
-        self.permutation = permutation
-        self.p = p
-        self.bpm = bpm
+    def set(self, d):
+        """Set all parameters given a dictionary.  Used mainly for schedules
+        which are updated 'on the one', hence doesn't use index translation
+        like in the tempo setter.
+
+        :param d: dictionary containing some of
+                  beats/subdivision/permutation/bpm/p
+        """
+        self.beats = d["beats"] if "beats" in d else self.beats
+        self.subdivision = (
+            d["subdivision"] if "subdivision" in d else self.subdivision
+        )
+        self.permutation = (
+            d["permutation"] if "permutation" in d else self.permutation
+        )
+        self.p = d["p"] if "p" in d else self.p
+        self.bpm = d["bpm"] if "bpm" in d else self.bpm
         self.loop_length = self.n = self.length()
         self.new_actions()
 
@@ -192,12 +203,10 @@ class ClickSchedule(Trigger):
         schedule = [x for x in schedule for i in range(x["bars"])]
         self.schedule = Queue()
         for x in schedule:
-            if "bars" in x:
-                del x["bars"]
             self.schedule.put(x)
 
         self.metronome.current_index = 0
-        self.metronome.set(**schedule[0])
+        self.metronome.set(schedule[0])
         super().__init__(
             0, self.metronome.loop_length, loop=True, priority=0, **kwargs
         )
@@ -207,11 +216,9 @@ class ClickSchedule(Trigger):
         while not self.metronome.actions.active.empty():
             self.metronome.actions.active.get()
 
-        self.metronome.set(**x)
+        self.metronome.set(x)
         self.schedule.put(x)
-        clicks = generate_click_locations(
-            x["beats"], x["bpm"], x["subdivision"], x["permutation"]
-        )
+        clicks = self.metronome.generate_click_locations()
 
         self.loop_length = self.metronome.loop_length
         # In case we need to immediately play on the one

@@ -103,7 +103,9 @@ class Metronome(loop.Audio):
         self.subdivision = subdivision
         self.permutation = permutation
         self.p = p
-        self.tempo = bpm
+        self.bpm = bpm
+        self.loop_length = self.n = self.length()
+        self.new_actions()
 
     def new_actions(self):
         # whenever changes are made, this should purge the action list and make

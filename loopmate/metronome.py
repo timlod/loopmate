@@ -38,12 +38,17 @@ class Metronome(loop.Audio):
         self.permutation = permutation
         self.sr = sr
         self.p = 1
+        self.schedule = None
 
         # 4096 would be the max buffer size to be safe
         audio = np.zeros(4096, dtype=np.float32)
         super().__init__(audio)
         self.n = self.loop_length = self.length()
         self.new_actions()
+
+    def add_schedule(self, schedule):
+        self.schedule = schedule
+        self.actions.prepend(self.schedule)
 
     def generate_click_locations(self):
         """Generate the locations of clicks.
@@ -93,12 +98,12 @@ class Metronome(loop.Audio):
         old_length = self.loop_length
         self.bpm = bpm
         self.loop_length = self.n = self.length()
-        # need to translate the current index onto the new timescale!
+        # Translate the current index onto the new timescale
         ci_frac = self.current_index / old_length
         self.current_index = (
             round(self.loop_length * ci_frac) if ci_frac else 0
         )
-        self.new_actions()
+        self.add_clicks()
 
     def set(self, d):
         """Set all parameters given a dictionary.  Used mainly for schedules
@@ -118,15 +123,14 @@ class Metronome(loop.Audio):
         self.p = d["p"] if "p" in d else self.p
         self.bpm = d["bpm"] if "bpm" in d else self.bpm
         self.loop_length = self.n = self.length()
-        self.new_actions()
+        self.add_clicks()
 
-    def new_actions(self):
-        # whenever changes are made, this should purge the action list and make
-        # a new one according to the metronome settings
+    def add_clicks(self):
         self.actions.actions.clear()
-        clicks = generate_click_locations(
-            self.beats, self.bpm, self.subdivision, self.permutation, self.sr
-        )
+        if self.schedule is not None:
+            self.actions.append(self.schedule)
+
+        clicks = self.generate_click_locations()
 
         for click in clicks:
             self.actions.append(
@@ -151,7 +155,7 @@ class Metronome(loop.Audio):
         # just a view
         out = self.audio[:samples].copy()
 
-        # this will actually place our clicks
+        # Here we place clicks through through actions
         self.actions.run(out, current_index, self.current_index)
         return out
 
@@ -169,26 +173,24 @@ class ClickTrigger(Trigger):
         super().__init__(when, loop_length, loop=True, **kwargs)
 
     def do(self, actions, current_index):
-        # potentially just blow up this loop_length in case we drastically slow
-        # down
+        # TODO: potential logic to always play/leave out the one in rand
         if random.random() <= self.p:
             sample = Sample(
                 CLAVE if self.when != 0 else CLAVE1,
+                # In case of drastic slowdown this prevents premature stopping
                 self.loop_length * 10,
                 wait=max(0, self.when - current_index),
-                gain=0.9,
             )
             actions.actions.appendleft(sample)
             actions.active.put_nowait(sample)
 
 
 class ClickSchedule(Trigger):
-    def __init__(self, metronome: Metronome, schedule, **kwargs):
-        """Use the supplied click schedule
+    def __init__(self, metronome: Metronome, schedule: list[dict], **kwargs):
+        """Use the supplied click schedule to create complex click patterns.
 
-        :param when:
-        :param loop_length:
-        :param schedule:
+        :param metronome: Metronome instance
+        :param schedule: list of dictionaries containing the click pattern
         """
         self.metronome = metronome
         schedule = [x for x in schedule for i in range(x["bars"])]
@@ -214,10 +216,10 @@ class ClickSchedule(Trigger):
         self.loop_length = self.metronome.loop_length
         # In case we need to immediately play on the one
         if clicks[0] == 0:
+            # Index 0 holds this schedule, 1 will be the first click
             self.metronome.actions.active.put_nowait(
-                self.metronome.actions.actions[0]
+                self.metronome.actions.actions[1]
             )
-        self.metronome.actions.append(self)
 
 
 def decode_midi_status(status: int) -> (int, int):
@@ -308,7 +310,7 @@ if __name__ == "__main__":
         m = Metronome(60, 4, 4, 3, sr=config.SR)
         loop = loop.Loop(rec, m)
         m_sched = ClickSchedule(m, schedule)
-        m.actions.prepend(m_sched)
+        m.add_schedule(m_sched)
         loop.start()
         midi = MIDIHandler(m, loop)
         try:

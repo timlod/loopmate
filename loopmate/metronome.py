@@ -11,9 +11,11 @@ import rtmidi
 from scipy.signal import resample
 
 CLAVE, MSR = sf.read("../data/clave.wav", dtype=np.float32)
-CLAVE = CLAVE[:, None]
-# Shorten the sample somewhat
-CLAVE = resample(CLAVE, 4096)
+CLAVE = CLAVE[:2000, None]
+CLAVE[-256:, 0] *= np.linspace(1, 0, 256)
+
+# Shorten the sample somewhat and raise pitch
+CLAVE = resample(CLAVE, 1800)
 
 
 def generate_click_locations(

@@ -39,6 +39,7 @@ class Metronome(loop.Audio):
         self.sr = sr
         self.p = 1
         self.schedule = None
+        self.tempo_schedule = None
 
         # 4096 would be the max buffer size to be safe
         audio = np.zeros(4096, dtype=np.float32)
@@ -49,6 +50,10 @@ class Metronome(loop.Audio):
     def add_schedule(self, schedule):
         self.schedule = schedule
         self.actions.prepend(self.schedule)
+
+    def add_tempo_schedule(self, tempo_schedule):
+        self.tempo_schedule = tempo_schedule
+        self.actions.append(self.tempo_schedule)
 
     def generate_click_locations(self):
         """Generate the locations of clicks.
@@ -127,8 +132,11 @@ class Metronome(loop.Audio):
 
     def add_clicks(self):
         self.actions.actions.clear()
+        # Re-add schedule triggers
         if self.schedule is not None:
             self.actions.append(self.schedule)
+        if self.tempo_schedule is not None:
+            self.actions.append(self.tempo_schedule)
 
         clicks = self.generate_click_locations()
 
@@ -216,10 +224,58 @@ class ClickSchedule(Trigger):
         self.loop_length = self.metronome.loop_length
         # In case we need to immediately play on the one
         if clicks[0] == 0:
-            # Index 0 holds this schedule, 1 will be the first click
-            self.metronome.actions.active.put_nowait(
-                self.metronome.actions.actions[1]
-            )
+            # Schedules come before clicks, skip those
+            for action in self.metronome.actions.actions:
+                if isinstance(action, ClickTrigger):
+                    self.metronome.actions.active.put_nowait(action)
+                    return
+
+
+class TempoSchedule(Trigger):
+    def __init__(
+        self,
+        metronome: Metronome,
+        min_bpm: int,
+        max_bpm: int,
+        step: int,
+        bars_per_step: int,
+        mode: str = "repeat",
+        **kwargs,
+    ):
+        """Schedule to raise or decrease tempo in a controlled manner.
+
+        :param metronome: Metronome instance
+        """
+        self.metronome = metronome
+        self.times = np.repeat(range(min_bpm, max_bpm, step), bars_per_step)
+        if mode == "repeat":
+            self.tempo = repeat_generator(self.times)
+        else:
+            self.tempo = pingpong_generator(self.times)
+
+        # Tempo schedule needs to apply before Click schedule
+        super().__init__(
+            0, self.metronome.loop_length, loop=True, priority=-1, **kwargs
+        )
+
+    def do(self, actions, current_index):
+        print(self.metronome.tempo)
+        self.metronome.tempo = next(self.tempo)
+        self.loop_length = self.metronome.loop_length
+
+
+def repeat_generator(x):
+    while True:
+        for i in x:
+            yield i
+
+
+def pingpong_generator(x):
+    while True:
+        for i in x:
+            yield i
+        for i in reversed(x):
+            yield i
 
 
 def decode_midi_status(status: int) -> (int, int):
@@ -311,6 +367,7 @@ if __name__ == "__main__":
         loop = loop.Loop(rec, m)
         m_sched = ClickSchedule(m, schedule)
         m.add_schedule(m_sched)
+        m.add_tempo_schedule(TempoSchedule(m, 120, 240, 10, 1, "reverse"))
         loop.start()
         midi = MIDIHandler(m, loop)
         try:

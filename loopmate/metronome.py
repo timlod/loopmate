@@ -98,7 +98,15 @@ class Metronome(loop.Audio):
         return self.bpm
 
     @tempo.setter
-    def tempo(self, bpm):
+    def tempo(self, bpm: int):
+        """Set tempo to given BPM.
+
+        If a schedule is running that sets BPM, this will be overwritten.  If
+        the schedule doesn't contain any BPM, it will apply to the entire
+        schedule.
+
+        :param bpm: BPM
+        """
         assert bpm > 0, "bpm can't be smaller than 1!"
         old_length = self.loop_length
         self.bpm = bpm
@@ -170,7 +178,7 @@ class Metronome(loop.Audio):
 
 class ClickTrigger(Trigger):
     def __init__(self, when, loop_length, p=1.0, **kwargs):
-        """Trigger to immediately play a click sample.
+        """Trigger to play a click sample at an exact point in time.
 
         :param when: index at which to play the sample
         :param loop_length: length of the containing loop
@@ -195,7 +203,7 @@ class ClickTrigger(Trigger):
 
 class ClickSchedule(Trigger):
     def __init__(self, metronome: Metronome, schedule: list[dict], **kwargs):
-        """Use the supplied click schedule to create complex click patterns.
+        """Schedule containing complex click patterns.
 
         :param metronome: Metronome instance
         :param schedule: list of dictionaries containing the click pattern

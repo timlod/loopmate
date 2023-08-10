@@ -69,7 +69,7 @@ class Audio:
         self.n += right
         self._audio = self.audio.copy()
 
-        self.actions = Actions(self)
+        self.actions = Actions()
 
     def get_n(self, samples: int) -> np.ndarray:
         """Return the next batch of audio in the loop

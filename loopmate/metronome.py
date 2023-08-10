@@ -231,7 +231,7 @@ class ClickSchedule(Trigger):
 
         self.loop_length = self.metronome.loop_length
         # In case we need to immediately play on the one
-        if clicks[0] == 0:
+        if clicks and clicks[0] == 0:
             # Schedules come before clicks, skip those
             for action in self.metronome.actions.actions:
                 if isinstance(action, ClickTrigger):

@@ -253,13 +253,23 @@ class TempoSchedule(Trigger):
         """Schedule to raise or decrease tempo in a controlled manner.
 
         :param metronome: Metronome instance
+        :param min_bpm: lowest BPM, schedules starts with this
+        :param max_bpm: highest BPM the tempo will increase to
+        :param step: how many BPM to increase the tempo at each step
+        :param bars_per_step: how many bars mark one step - i.e. 4 bars per
+            step means the BPM will increase per schedule every 4 bars
+        :param mode: 'repeat' to restart the schedule (jumps directly from
+            max_bpm to min_bpm), 'reverse' to reverse the schedule once max_bpm
+            is reached or 'stay' to stay at max_bpm once it is reached
         """
         self.metronome = metronome
         self.times = np.repeat(range(min_bpm, max_bpm, step), bars_per_step)
         if mode == "repeat":
             self.tempo = repeat_generator(self.times)
-        else:
+        elif mode == "reverse":
             self.tempo = pingpong_generator(self.times)
+        else:
+            self.tempo = stay_generator(self.times)
 
         # Tempo schedule needs to apply before Click schedule
         super().__init__(
@@ -283,6 +293,14 @@ def pingpong_generator(x):
         for i in x:
             yield i
         for i in reversed(x):
+            yield i
+
+
+def stay_generator(x):
+    while True:
+        for i in x:
+            yield i
+        while True:
             yield i
 
 
